@@ -151,6 +151,75 @@ def cmd_status(args: list[str]) -> None:
         console.print("\n[green]All files filled.[/green]")
 
 
+def cmd_search(args: list[str]) -> None:
+    """Search local wiki files for a keyword."""
+    import re
+    import yaml
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+
+    if not args:
+        console.print("[red]Error:[/red] provide a search term. Usage: arxiv-ingest search <term>")
+        sys.exit(1)
+
+    query = " ".join(args).lower()
+
+    config_path = Path("config.yaml")
+    if not config_path.exists():
+        console.print("[red]Error:[/red] config.yaml not found. Run: arxiv-ingest init")
+        sys.exit(1)
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    wiki_root = Path(config.get("output_dir", "research-wiki")).resolve()
+    if not wiki_root.exists():
+        console.print(f"[red]Error:[/red] Wiki directory not found: {wiki_root}")
+        sys.exit(1)
+
+    results: list[tuple[str, str, str]] = []  # (layer, slug, snippet)
+
+    for md in sorted(wiki_root.rglob("*.md")):
+        text = md.read_text()
+        if query not in text.lower():
+            continue
+
+        # Determine layer label from path relative to wiki_root
+        rel = md.relative_to(wiki_root)
+        parts = rel.parts
+        layer = parts[0] if parts[0] != "wiki" else "wiki/" + parts[1]
+
+        # Extract a short snippet around the first match
+        idx = text.lower().find(query)
+        start = max(0, idx - 40)
+        end = min(len(text), idx + len(query) + 60)
+        snippet = text[start:end].replace("\n", " ").strip()
+        # Highlight the match
+        snippet = re.sub(
+            re.escape(query), f"[bold yellow]{query}[/bold yellow]", snippet,
+            flags=re.IGNORECASE,
+        )
+
+        slug = md.stem
+        results.append((layer, slug, snippet))
+
+    if not results:
+        console.print(f"No results for [bold]{query}[/bold]")
+        return
+
+    table = Table(title=f"{len(results)} result(s) for '{query}'")
+    table.add_column("Layer", style="cyan", no_wrap=True)
+    table.add_column("File")
+    table.add_column("Snippet")
+
+    for layer, slug, snippet in results:
+        table.add_row(layer, slug[:50], snippet[:100])
+
+    console.print(table)
+
+
 def cmd_fetch(args: list[str]) -> None:
     from scripts.fetch import main as fetch_main
     sys.argv = ["fetch"] + args
@@ -180,6 +249,7 @@ def print_help() -> None:
         "  arxiv-ingest generate         Generate skeleton files from fetched.json\n"
         "  arxiv-ingest run              fetch + generate in one step\n"
         "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
+        "  arxiv-ingest search <term>    Search local wiki files for a keyword\n"
         "\n"
         "Flags:\n"
         "  --dry-run   Preview what would be fetched or created without writing any files\n"
@@ -210,6 +280,7 @@ def main() -> None:
         "generate": cmd_generate,
         "run": cmd_run,
         "status": cmd_status,
+        "search": cmd_search,
     }
 
     if cmd not in commands:
