@@ -91,6 +91,66 @@ def _write_default_config(config_path: Path, wiki_dir: Path) -> None:
     )
 
 
+def cmd_status(args: list[str]) -> None:
+    """Show fill progress for evidence and wiki files in the output directory."""
+    import yaml
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+
+    config_path = Path("config.yaml")
+    if not config_path.exists():
+        console.print("[red]Error:[/red] config.yaml not found. Run: arxiv-ingest init")
+        sys.exit(1)
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    wiki_root = (Path(config.get("output_dir", "research-wiki"))).resolve()
+    if not wiki_root.exists():
+        console.print(f"[red]Error:[/red] Wiki directory not found: {wiki_root}")
+        sys.exit(1)
+
+    from scripts.generate import _TEMPLATE_MARKER
+
+    def _count(layer_dir: Path) -> tuple[int, int]:
+        """Return (filled, unfilled) counts for a layer directory."""
+        filled = unfilled = 0
+        for md in layer_dir.rglob("*.md"):
+            if _TEMPLATE_MARKER in md.read_text():
+                unfilled += 1
+            else:
+                filled += 1
+        return filled, unfilled
+
+    table = Table(title=f"Wiki status — {wiki_root}")
+    table.add_column("Layer", style="cyan")
+    table.add_column("Filled", style="green", justify="right")
+    table.add_column("Unfilled", style="yellow", justify="right")
+    table.add_column("Total", justify="right")
+
+    total_filled = total_unfilled = 0
+    for layer in ("sources", "evidence", "wiki/papers"):
+        layer_dir = wiki_root / layer
+        if not layer_dir.exists():
+            continue
+        f, u = _count(layer_dir)
+        total_filled += f
+        total_unfilled += u
+        label = layer if layer != "wiki/papers" else "wiki"
+        table.add_row(label, str(f), str(u) if u else "[dim]0[/dim]", str(f + u))
+
+    table.add_section()
+    table.add_row("[bold]total[/bold]", str(total_filled), str(total_unfilled), str(total_filled + total_unfilled))
+    console.print(table)
+
+    if total_unfilled:
+        console.print(f"\n[yellow]{total_unfilled} unfilled file(s) — run /arxiv-ingest in Claude Code to fill them.[/yellow]")
+    else:
+        console.print("\n[green]All files filled.[/green]")
+
+
 def cmd_fetch(args: list[str]) -> None:
     from scripts.fetch import main as fetch_main
     sys.argv = ["fetch"] + args
@@ -119,6 +179,7 @@ def print_help() -> None:
         "  arxiv-ingest fetch            Fetch recent papers from arXiv (saves data/fetched.json)\n"
         "  arxiv-ingest generate         Generate skeleton files from fetched.json\n"
         "  arxiv-ingest run              fetch + generate in one step\n"
+        "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
         "\n"
         "Flags:\n"
         "  --dry-run   Preview what would be fetched or created without writing any files\n"
@@ -148,6 +209,7 @@ def main() -> None:
         "fetch": cmd_fetch,
         "generate": cmd_generate,
         "run": cmd_run,
+        "status": cmd_status,
     }
 
     if cmd not in commands:
