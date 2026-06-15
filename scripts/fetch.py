@@ -39,6 +39,8 @@ def fetch_papers(config: dict) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=config.get("days_back", 1))
     category_map = config.get("category_map", {})
     max_results = config.get("max_results", 20)
+    allowed_cats = set(config.get("allowed_arxiv_categories", []))
+    require_primary = set(config.get("require_primary_in", []))
 
     seen_ids: set[str] = set()
     papers: list[dict] = []
@@ -53,6 +55,11 @@ def fetch_papers(config: dict) -> list[dict]:
         )
         for result in client.results(search):
             if result.published < cutoff:
+                continue
+            if allowed_cats and not any(c in allowed_cats for c in result.categories):
+                continue
+            primary = result.categories[0] if result.categories else ""
+            if require_primary and primary not in require_primary:
                 continue
             arxiv_id = result.entry_id.split("/")[-1]
             if arxiv_id in seen_ids:

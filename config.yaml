@@ -7,17 +7,37 @@ max_results: 20   # per keyword
 days_back: 7      # fetch papers from the last N days
 
 keywords:
-  - "Vision-Language Model"
-  - "LoRA fine-tuning"
-  - "Masked Autoencoder"
-  - "Physical AI robotics"
-  - "LLM reasoning"
+  - "vision language model transformer"
+  - "LoRA PEFT fine-tuning language model"
+  - "masked autoencoder self-supervised learning"
+  - "embodied AI robot learning manipulation"
+  - "large language model reasoning chain-of-thought"
+  - "multimodal foundation model"
+
+# arXiv category filter — only accept papers in these categories
+allowed_arxiv_categories:
+  - cs.CV
+  - cs.CL
+  - cs.LG
+  - cs.AI
+  - cs.RO
+  - stat.ML
 
 # arXiv category → research-wiki category mapping
 category_map:
   cs.CV: "Multimodal"
   cs.CL: "Post_Training"
-  cs.LG: "Architecture"
   cs.AI: "Reasoning"
   cs.RO: "Physical_AI"
   stat.ML: "Pretraining"
+  # cs.LG は幅広すぎるため除外 — キーワードマッチで拾う
+
+# cs.LG 論文はキーワードが一致した場合のみ受け入れる
+# allowed_arxiv_categories に cs.LG を残しつつ、
+# primary category が cs.LG 単独の場合はスキップ
+require_primary_in:
+  - cs.CV
+  - cs.CL
+  - cs.AI
+  - cs.RO
+  - stat.ML
