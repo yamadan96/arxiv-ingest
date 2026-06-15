@@ -1,16 +1,25 @@
 """Generate research-wiki skeleton files from fetched.json.
 
-Creates sources/{Category}/{slug}.md for each paper.
-evidence/ and wiki/ are filled in by Claude Code (see arxiv-ingest skill).
+Creates three files per paper:
+  sources/{Category}/{slug}.md   -- immutable metadata
+  evidence/{Category}/{slug}.md  -- claims/benchmarks (fill this in)
+  wiki/papers/{Category}/{slug}.md -- synthesis (fill this in)
+
+Already-filled evidence/wiki files are never overwritten.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import yaml
 from rich.console import Console
 
 console = Console()
+
+# Sentinel string embedded in unfilled template files.
+# Any file that still contains this string has not been filled in yet.
+_TEMPLATE_MARKER = "<!-- arxiv-ingest: unfilled -->"
 
 SOURCES_TEMPLATE = """\
 ---
@@ -29,42 +38,44 @@ status: unprocessed
 
 # {title}
 
-## 概要
+## Abstract
 {abstract_short}
 
-## メモ
+## Notes
 - arXiv: {arxiv_id}
-- キーワード: {matched_keyword}
-- arXivカテゴリ: {arxiv_categories}
+- Matched keyword: {matched_keyword}
+- arXiv categories: {arxiv_categories}
 """
 
 EVIDENCE_TEMPLATE = """\
+{marker}
 ---
 source: src-{arxiv_id}
 date_extracted: {date_added}
 ---
 
-# {title} からの抽出
+# Extracted claims: {title}
 
-## 主要な主張
-- （Claude Code が論文を読んで記入）
+## Key claims
+- (fill in)
 
-## 主要な貢献
+## Contributions
 -
 
-## 制限・注意点
+## Limitations
 -
 
-## ベンチマーク結果
-| ベンチマーク | スコア | 備考 |
-|---|---|---|
+## Benchmark results
+| Benchmark | Score | Notes |
+|-----------|-------|-------|
 | | | |
 
-## 実装関連
+## Implementation notes
 -
 """
 
 WIKI_TEMPLATE = """\
+{marker}
 ---
 title: "{title}"
 aliases: []
@@ -76,32 +87,38 @@ sources: [src-{arxiv_id}]
 
 # {title}
 
-## ソースからの事実
-- （Claude Code が論文を読んで記入） [source](../../../sources/{category}/{slug}.md)
+## Facts from source
+- (fill in) [source](../../../sources/{category}/{slug}.md)
 
-## 現時点の解釈
-（合成・分析・判断）
+## Current interpretation
+(synthesis, analysis, judgment)
 
-## 関連ページ
+## Related pages
 -
 
-## 未解決の問い
+## Open questions
 - ?
 """
 
 
 def load_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        console.print(
+            f"[red]Error:[/red] config file not found: {config_path}\n"
+            "Run: cp config.yaml.example config.yaml"
+        )
+        sys.exit(1)
     with open(config_path) as f:
         return yaml.safe_load(f)
 
 
-def is_template(path: Path, marker: str = "Claude Code が論文を読んで記入") -> bool:
-    """Return True if the file still contains unfilled template placeholder."""
-    return path.exists() and marker in path.read_text()
+def is_template(path: Path) -> bool:
+    """Return True if the file still contains the unfilled template marker."""
+    return path.exists() and _TEMPLATE_MARKER in path.read_text()
 
 
 def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
-    """Returns (path, created). Never overwrites existing sources files."""
+    """Create sources file. Never overwrites — sources are immutable once written."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "sources" / category / f"{slug}.md"
@@ -112,28 +129,25 @@ def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> tuple[Pat
 
     tags = [category.lower(), paper["matched_keyword"].lower().replace(" ", "-")]
     abstract_short = paper["abstract"][:300] + ("..." if len(paper["abstract"]) > 300 else "")
-    authors_yaml = json.dumps(paper["authors"][:5], ensure_ascii=False)
-    tags_yaml = json.dumps(tags, ensure_ascii=False)
-    cats_yaml = json.dumps(paper["arxiv_categories"], ensure_ascii=False)
 
     content = SOURCES_TEMPLATE.format(
         arxiv_id=paper["arxiv_id"],
         title=paper["title"].replace('"', '\\"'),
-        authors=authors_yaml,
+        authors=json.dumps(paper["authors"][:5], ensure_ascii=False),
         year=paper["published"][:4],
         url=paper["url"],
-        tags=tags_yaml,
+        tags=json.dumps(tags, ensure_ascii=False),
         date_added=date_added,
         abstract_short=abstract_short,
         matched_keyword=paper["matched_keyword"],
-        arxiv_categories=cats_yaml,
+        arxiv_categories=json.dumps(paper["arxiv_categories"], ensure_ascii=False),
     )
     out.write_text(content)
     return out, True
 
 
 def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
-    """Returns (path, created). Skips if file exists and has been filled in."""
+    """Create evidence file. Skips if file exists and has already been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "evidence" / category / f"{slug}.md"
@@ -143,6 +157,7 @@ def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Pa
         return out, False
 
     content = EVIDENCE_TEMPLATE.format(
+        marker=_TEMPLATE_MARKER,
         arxiv_id=paper["arxiv_id"],
         title=paper["title"],
         date_added=date_added,
@@ -152,7 +167,7 @@ def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Pa
 
 
 def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
-    """Returns (path, created). Skips if file exists and has been filled in."""
+    """Create wiki page. Skips if file exists and has already been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "wiki" / "papers" / category / f"{slug}.md"
@@ -162,12 +177,12 @@ def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, 
         return out, False
 
     tags = [category.lower(), paper["matched_keyword"].lower().replace(" ", "-")]
-    tags_yaml = json.dumps(tags, ensure_ascii=False)
 
     content = WIKI_TEMPLATE.format(
+        marker=_TEMPLATE_MARKER,
         title=paper["title"].replace('"', '\\"'),
         date_added=date_added,
-        tags=tags_yaml,
+        tags=json.dumps(tags, ensure_ascii=False),
         arxiv_id=paper["arxiv_id"],
         category=category,
         slug=slug,
@@ -181,8 +196,16 @@ def main() -> None:
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
+
+    fetched_path = root / "data" / "fetched.json"
+    if not fetched_path.exists():
+        console.print(
+            "[red]Error:[/red] data/fetched.json not found. Run 'arxiv-ingest fetch' first."
+        )
+        sys.exit(1)
+
     wiki_root = (root / config.get("output_dir", "../research-wiki")).resolve()
-    fetched = json.loads((root / "data" / "fetched.json").read_text())
+    fetched = json.loads(fetched_path.read_text())
     date_added = date.today().isoformat()
 
     new_count = 0

@@ -33,3 +33,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 include = ["main.py", "scripts/*.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]

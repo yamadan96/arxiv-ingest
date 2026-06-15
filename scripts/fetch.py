@@ -86,8 +86,24 @@ def fetch_papers(config: dict) -> list[dict]:
 
 def main() -> None:
     root = Path(__file__).parent.parent
-    config = load_config(root / "config.yaml")
-    papers = fetch_papers(config)
+    config_path = root / "config.yaml"
+    if not config_path.exists():
+        console.print(
+            "[red]Error:[/red] config.yaml not found.\n"
+            "Run: cp config.yaml.example config.yaml"
+        )
+        sys.exit(1)
+    config = load_config(config_path)
+
+    if not config.get("keywords"):
+        console.print("[red]Error:[/red] No keywords defined in config.yaml.")
+        sys.exit(1)
+
+    try:
+        papers = fetch_papers(config)
+    except Exception as exc:
+        console.print(f"[red]Error fetching papers:[/red] {exc}")
+        sys.exit(1)
 
     out = root / "data" / "fetched.json"
     out.parent.mkdir(exist_ok=True)
