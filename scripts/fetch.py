@@ -85,12 +85,14 @@ def fetch_papers(config: dict) -> list[dict]:
 
 
 def main() -> None:
+    dry_run = "--dry-run" in sys.argv
+
     root = Path(__file__).parent.parent
     config_path = root / "config.yaml"
     if not config_path.exists():
         console.print(
             "[red]Error:[/red] config.yaml not found.\n"
-            "Run: cp config.yaml.example config.yaml"
+            "Run: arxiv-ingest init"
         )
         sys.exit(1)
     config = load_config(config_path)
@@ -105,17 +107,22 @@ def main() -> None:
         console.print(f"[red]Error fetching papers:[/red] {exc}")
         sys.exit(1)
 
-    out = root / "data" / "fetched.json"
-    out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps(papers, ensure_ascii=False, indent=2))
-
-    table = Table(title=f"Fetched {len(papers)} papers")
+    title = f"{'[DRY RUN] ' if dry_run else ''}Fetched {len(papers)} papers"
+    table = Table(title=title)
     table.add_column("Category", style="cyan")
     table.add_column("Title")
     table.add_column("Date")
     for p in papers:
         table.add_row(p["wiki_category"], p["title"][:60], p["published"])
     console.print(table)
+
+    if dry_run:
+        console.print("[yellow]Dry run — fetched.json not written.[/yellow]")
+        return
+
+    out = root / "data" / "fetched.json"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(json.dumps(papers, ensure_ascii=False, indent=2))
     console.print(f"[green]Saved → {out}[/green]")
 
 

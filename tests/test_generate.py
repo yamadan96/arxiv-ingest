@@ -122,3 +122,29 @@ class TestGenerateWiki:
         assert path.parent.name == "Post_Training"
         assert path.parent.parent.name == "papers"
         assert path.parent.parent.parent.name == "wiki"
+
+
+class TestWouldCreate:
+    def test_new_paper_all_true(self, wiki_root: Path) -> None:
+        from scripts.generate import _would_create
+        s, e, w = _would_create(SAMPLE_PAPER, wiki_root)
+        assert s and e and w
+
+    def test_filled_sources_is_false(self, wiki_root: Path) -> None:
+        from scripts.generate import _would_create
+        generate_sources(SAMPLE_PAPER, wiki_root, "2025-01-01")
+        s, _, _ = _would_create(SAMPLE_PAPER, wiki_root)
+        assert not s
+
+    def test_filled_evidence_is_false(self, wiki_root: Path) -> None:
+        from scripts.generate import _would_create
+        path, _ = generate_evidence(SAMPLE_PAPER, wiki_root, "2025-01-01")
+        path.write_text("# filled evidence")
+        _, e, _ = _would_create(SAMPLE_PAPER, wiki_root)
+        assert not e
+
+    def test_unfilled_evidence_still_true(self, wiki_root: Path) -> None:
+        from scripts.generate import _would_create
+        generate_evidence(SAMPLE_PAPER, wiki_root, "2025-01-01")  # still a template
+        _, e, _ = _would_create(SAMPLE_PAPER, wiki_root)
+        assert e

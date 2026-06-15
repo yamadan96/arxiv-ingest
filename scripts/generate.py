@@ -191,8 +191,23 @@ def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, 
     return out, True
 
 
+def _would_create(paper: dict, wiki_root: Path) -> tuple[bool, bool, bool]:
+    """Return (sources_new, evidence_new, wiki_new) without writing anything."""
+    cat, slug = paper["wiki_category"], paper["slug"]
+    src = wiki_root / "sources" / cat / f"{slug}.md"
+    ev = wiki_root / "evidence" / cat / f"{slug}.md"
+    wk = wiki_root / "wiki" / "papers" / cat / f"{slug}.md"
+    return (
+        not src.exists(),
+        not ev.exists() or is_template(ev),
+        not wk.exists() or is_template(wk),
+    )
+
+
 def main() -> None:
     from datetime import date
+
+    dry_run = "--dry-run" in sys.argv
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
@@ -210,19 +225,28 @@ def main() -> None:
 
     new_count = 0
     skipped_count = 0
+
     for paper in fetched:
-        _, s_new = generate_sources(paper, wiki_root, date_added)
-        _, e_new = generate_evidence(paper, wiki_root, date_added)
-        _, w_new = generate_wiki(paper, wiki_root, date_added)
+        if dry_run:
+            s_new, e_new, w_new = _would_create(paper, wiki_root)
+        else:
+            _, s_new = generate_sources(paper, wiki_root, date_added)
+            _, e_new = generate_evidence(paper, wiki_root, date_added)
+            _, w_new = generate_wiki(paper, wiki_root, date_added)
+
         if s_new or e_new or w_new:
             new_count += 1
-            console.print(f"[green]✓ new[/green] {paper['wiki_category']}/{paper['slug']}")
+            prefix = "[yellow]would create[/yellow]" if dry_run else "[green]✓ new[/green]"
+            console.print(f"{prefix} {paper['wiki_category']}/{paper['slug']}")
         else:
             skipped_count += 1
             console.print(f"[dim]skip[/dim] {paper['wiki_category']}/{paper['slug']}")
 
-    console.print(f"\n[bold]{new_count} new, {skipped_count} skipped → {wiki_root}[/bold]")
-    if new_count:
+    label = "would create" if dry_run else "new"
+    console.print(f"\n[bold]{new_count} {label}, {skipped_count} skipped → {wiki_root}[/bold]")
+    if dry_run:
+        console.print("[yellow]Dry run — no files written.[/yellow]")
+    elif new_count:
         console.print("[yellow]Next: run /arxiv-ingest to fill evidence & wiki with Claude[/yellow]")
 
 
