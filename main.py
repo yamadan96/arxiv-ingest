@@ -220,6 +220,81 @@ def cmd_search(args: list[str]) -> None:
     console.print(table)
 
 
+def cmd_export(args: list[str]) -> None:
+    """Export fetched papers to GitHub Issues via gh CLI."""
+    import json
+    import subprocess
+    import yaml
+    from rich.console import Console
+
+    console = Console()
+
+    # Parse flags
+    dry_run = "--dry-run" in args
+    repo = next((a for a in args if a.startswith("--repo=")), None)
+    repo_arg = repo.split("=", 1)[1] if repo else None
+
+    # Check gh is available
+    try:
+        subprocess.run(["gh", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        console.print("[red]Error:[/red] gh CLI not found. Install: https://cli.github.com/")
+        sys.exit(1)
+
+    fetched_path = Path("data/fetched.json")
+    if not fetched_path.exists():
+        console.print("[red]Error:[/red] data/fetched.json not found. Run 'arxiv-ingest fetch' first.")
+        sys.exit(1)
+
+    papers = json.loads(fetched_path.read_text())
+
+    # Category → label mapping
+    label_map = {
+        "Multimodal": "cv",
+        "Post_Training": "nlp",
+        "Reasoning": "ai",
+        "Physical_AI": "robotics",
+        "Pretraining": "ml",
+        "Architecture": "ml",
+    }
+
+    created = skipped = 0
+    for p in papers:
+        label = label_map.get(p["wiki_category"], "arxiv")
+        title = f"[{p['wiki_category']}] {p['title']}"
+        body = (
+            f"**arXiv**: {p['url']}\n"
+            f"**Authors**: {', '.join(p['authors'][:5])}\n"
+            f"**Published**: {p['published']}\n"
+            f"**Categories**: {', '.join(p['arxiv_categories'])}\n\n"
+            f"## Abstract\n{p['abstract'][:800]}\n\n"
+            f"## Notes\n- [ ] Read\n- [ ] Evidence extracted\n- [ ] Wiki page filled\n"
+        )
+
+        if dry_run:
+            console.print(f"[yellow]would create[/yellow] [{label}] {p['title'][:60]}")
+            created += 1
+            continue
+
+        cmd = ["gh", "issue", "create", "--title", title, "--body", body, "--label", label]
+        if repo_arg:
+            cmd += ["--repo", repo_arg]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            console.print(f"[green]✓[/green] {url}")
+            created += 1
+        else:
+            console.print(f"[red]✗[/red] {p['title'][:50]} — {result.stderr.strip()}")
+            skipped += 1
+
+    label_suffix = " (dry run)" if dry_run else ""
+    console.print(f"\n[bold]{created} created, {skipped} failed{label_suffix}[/bold]")
+    if dry_run:
+        console.print("[yellow]Re-run without --dry-run to create issues.[/yellow]")
+
+
 def cmd_fetch(args: list[str]) -> None:
     from scripts.fetch import main as fetch_main
     sys.argv = ["fetch"] + args
@@ -250,6 +325,9 @@ def print_help() -> None:
         "  arxiv-ingest run              fetch + generate in one step\n"
         "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
         "  arxiv-ingest search <term>    Search local wiki files for a keyword\n"
+        "  arxiv-ingest export           Export fetched papers to GitHub Issues (requires gh CLI)\n"
+        "                                  --repo=owner/repo  target repository\n"
+        "                                  --dry-run          preview without creating\n"
         "\n"
         "Flags:\n"
         "  --dry-run   Preview what would be fetched or created without writing any files\n"
@@ -281,6 +359,7 @@ def main() -> None:
         "run": cmd_run,
         "status": cmd_status,
         "search": cmd_search,
+        "export": cmd_export,
     }
 
     if cmd not in commands:
