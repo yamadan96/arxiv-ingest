@@ -1,0 +1,76 @@
+name: Daily arXiv Ingest
+
+on:
+  schedule:
+    - cron: '0 1 * * 1-5'  # 月〜金 JST 10:00 (UTC 01:00)
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Fetch papers from last N days'
+        default: '1'
+        required: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout arxiv-ingest
+        uses: actions/checkout@v4
+
+      - name: Checkout research-wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.WIKI_REPO }}   # 例: yamadan96/research-wiki
+          token: ${{ secrets.GH_PAT }}
+          path: research-wiki
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Override days_back (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python - <<'EOF'
+          import yaml, re, sys
+          path = "config.yaml"
+          text = open(path).read()
+          text = re.sub(r'^days_back:.*$', f'days_back: ${{ inputs.days_back }}', text, flags=re.MULTILINE)
+          open(path, "w").write(text)
+          EOF
+
+      - name: Fetch papers from arXiv
+        run: uv run python scripts/fetch.py
+
+      - name: Generate research-wiki skeletons
+        env:
+          OUTPUT_DIR: research-wiki
+        run: |
+          python - <<'EOF'
+          import yaml, pathlib
+          cfg = yaml.safe_load(open("config.yaml"))
+          cfg["output_dir"] = "research-wiki"
+          open("config.yaml", "w").write(yaml.dump(cfg, allow_unicode=True))
+          EOF
+          uv run python scripts/generate.py
+
+      - name: Commit new files to research-wiki
+        working-directory: research-wiki
+        run: |
+          git config user.name "arxiv-ingest[bot]"
+          git config user.email "arxiv-ingest@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No new papers to commit."
+          else
+            COUNT=$(git diff --staged --name-only | grep '^sources/' | wc -l | tr -d ' ')
+            git commit -m "auto: arXiv ingest $(date +%Y-%m-%d) [${COUNT} papers]"
+            git push
+          fi
