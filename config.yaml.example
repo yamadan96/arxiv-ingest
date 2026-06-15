@@ -1,19 +1,55 @@
 # arxiv-ingest configuration
-# Edit keywords and output_dir to match your setup
+# Copy this file to config.yaml and edit to match your setup.
+#
+# Quick start:
+#   cp config.yaml.example config.yaml
+#   arxiv-ingest run
 
-output_dir: "../research-wiki"  # path to your research-wiki directory
+# Path to your research wiki directory (relative to this config file).
+# The tool creates sources/, evidence/, and wiki/papers/ subdirectories here.
+output_dir: "../research-wiki"
 
-max_results: 20   # per keyword
-days_back: 7      # fetch papers from the last N days
+# How many papers to fetch per keyword (arXiv API limit: 100)
+max_results: 20
 
+# Fetch papers published within the last N days
+days_back: 7
+
+# Keywords to search for on arXiv. Each keyword is queried independently.
+# Use specific phrases for higher precision, e.g. "vision language model grounding"
+# rather than just "vision".
 keywords:
-  - "Vision-Language Model"
-  - "LoRA fine-tuning"
-  - "Masked Autoencoder"
-  - "Physical AI robotics"
-  - "LLM reasoning"
+  - "Vision-Language Model transformer"
+  - "LoRA PEFT fine-tuning language model"
+  - "masked autoencoder self-supervised learning"
+  - "embodied AI robot learning manipulation"
+  - "large language model reasoning chain-of-thought"
+  - "multimodal foundation model"
 
-# arXiv category → research-wiki category mapping
+# Only accept papers whose arXiv categories include at least one of these.
+# Remove this section to accept all categories.
+allowed_arxiv_categories:
+  - cs.CV    # Computer Vision
+  - cs.CL    # Computation and Language (NLP)
+  - cs.LG    # Machine Learning
+  - cs.AI    # Artificial Intelligence
+  - cs.RO    # Robotics
+  - stat.ML  # Statistics - Machine Learning
+
+# Only accept papers whose PRIMARY category is in this list.
+# This prevents off-topic papers (e.g. pure math) from being included
+# even if they mention your keywords.
+# Remove or leave empty to skip this filter.
+require_primary_in:
+  - cs.CV
+  - cs.CL
+  - cs.AI
+  - cs.RO
+  - stat.ML
+
+# Map arXiv categories to your wiki's category folder names.
+# Papers are placed in wiki/papers/{category}/ based on their primary arXiv category.
+# Add or rename categories to match your wiki structure.
 category_map:
   cs.CV: "Multimodal"
   cs.CL: "Post_Training"

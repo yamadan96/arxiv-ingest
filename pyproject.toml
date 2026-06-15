@@ -1,10 +1,35 @@
 [project]
 name = "arxiv-ingest"
-version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
+version = "0.2.0"
+description = "Fetch recent arXiv papers and scaffold them into a structured research wiki"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["arxiv", "research", "papers", "wiki", "knowledge-management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "arxiv>=4.0.0",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
 ]
+
+[project.scripts]
+arxiv-ingest = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/yamadan96/arxiv-ingest"
+Repository = "https://github.com/yamadan96/arxiv-ingest"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = ["main.py", "scripts/*.py"]

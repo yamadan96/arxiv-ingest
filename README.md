@@ -1,107 +1,117 @@
 # arxiv-ingest
 
-**arXiv の新着論文を毎日自動収集し、構造化された研究ノートに変換する CLI + GitHub Actions テンプレート。**
+**Fetch recent arXiv papers by keyword and scaffold them into structured research notes.**
 
-Claude Code と組み合わせることで、論文の要約・クレーム抽出・wiki ページの生成まで自動化できます。
+Works standalone as a CLI, or integrates with Claude Code for LLM-assisted evidence extraction and wiki generation.
 
-## 特徴
+## Features
 
-- **キーワードベース収集** — `config.yaml` にキーワードを書くだけ
-- **3層構造の出力** — `sources/`（メタ）・`evidence/`（クレーム抽出）・`wiki/`（要約）を分離して生成
-- **Claude Code 連携** — `/arxiv-ingest` スキルで LLM による evidence・wiki の自動記入
-- **GitHub Actions 対応** — 月〜金 JST 10:00 に自動実行、`workflow_dispatch` で手動実行も可
-- **任意の wiki に出力** — `output_dir` を変更するだけで出力先を切り替え可能
+- **Keyword-based collection** — list topics in `config.yaml`, no code needed
+- **3-layer output** — `sources/` (metadata) · `evidence/` (claims) · `wiki/` (synthesis)
+- **Safe re-runs** — already-filled files are never overwritten
+- **GitHub Actions template** — auto-runs Mon–Fri, `workflow_dispatch` for on-demand runs
+- **Any wiki** — point `output_dir` at any directory
 
-## クイックスタート
+## Quick start
 
 ```bash
-# 1. リポジトリをクローン
+# Install (requires Python 3.11+)
 git clone https://github.com/yamadan96/arxiv-ingest
 cd arxiv-ingest
+uv sync                         # or: pip install -e .
 
-# 2. 依存関係をインストール
-uv sync
-
-# 3. キーワードを設定
+# Configure
 cp config.yaml.example config.yaml
-vim config.yaml
+# Edit config.yaml: set keywords, output_dir, and category mappings
 
-# 4. 論文を取得してスケルトンを生成
-uv run python scripts/fetch.py
-uv run python scripts/generate.py
+# Fetch papers and generate skeletons
+arxiv-ingest run                # fetch + generate in one step
+
+# Or step by step:
+arxiv-ingest fetch              # saves data/fetched.json
+arxiv-ingest generate           # creates skeleton files in output_dir
 ```
 
-## 設定（config.yaml）
+## Configuration (`config.yaml`)
 
 ```yaml
-output_dir: "../research-wiki"  # 出力先ディレクトリ
-max_results: 20                 # キーワードあたりの最大取得件数
-days_back: 7                    # 何日前までの論文を取得するか
+output_dir: "../research-wiki"  # path to your wiki directory
+max_results: 20                 # papers per keyword
+days_back: 7                    # look back N days
 
 keywords:
-  - "Vision-Language Model"
-  - "LoRA fine-tuning"
-  - "LLM reasoning"
+  - "Vision-Language Model transformer"
+  - "LoRA PEFT fine-tuning language model"
+  - "LLM reasoning chain-of-thought"
 
-# arXiv カテゴリ → wiki カテゴリのマッピング
+# Only accept papers in these arXiv categories:
+allowed_arxiv_categories: [cs.CV, cs.CL, cs.LG, cs.AI, cs.RO, stat.ML]
+
+# Primary category must be in this list (prevents off-topic papers):
+require_primary_in: [cs.CV, cs.CL, cs.AI, cs.RO, stat.ML]
+
+# arXiv category → wiki folder name:
 category_map:
   cs.CV: "Multimodal"
   cs.CL: "Post_Training"
-  cs.LG: "Architecture"
   cs.AI: "Reasoning"
   cs.RO: "Physical_AI"
   stat.ML: "Pretraining"
 ```
 
-## Claude Code スキルとして使う
+See `config.yaml.example` for the full reference with all options documented.
 
-`.claude/commands/arxiv-ingest.md` をあなたの Claude Code 設定にコピーすると、
-`/arxiv-ingest` コマンドで論文収集から wiki 記入まで一括実行できます。
+## Output format
 
-```bash
-cp .claude/commands/arxiv-ingest.md ~/.claude/commands/
-# または プロジェクトの .claude/commands/ にコピー
-```
-
-実行後、Claude が各論文の PDF を読んで `evidence/` と `wiki/` を自動記入します。
-
-## GitHub Actions で毎日自動実行
-
-### セットアップ
-
-1. このリポジトリを fork または テンプレートとして使用
-2. GitHub で Fine-grained PAT を作成（wiki リポジトリへの Write 権限）
-3. リポジトリの Settings → Secrets and variables → Actions に以下を登録：
-
-   | 種別 | 名前 | 値 |
-   |---|---|---|
-   | Secret | `GH_PAT` | 作成した PAT |
-   | Variable | `WIKI_REPO` | `your-name/research-wiki` |
-
-4. Actions タブ → `Daily arXiv Ingest` → `Run workflow` で動作確認
-
-### スケジュール
-
-- **自動実行**: 月〜金 JST 10:00（`cron: '0 1 * * 1-5'`）
-- **手動実行**: `workflow_dispatch` で `days_back` を指定して実行
-
-## 出力フォーマット
-
-[research-wiki](https://github.com/yamadan96/research-wiki) の SCHEMA に準拠した Markdown ファイルを生成します。
+Skeleton files are created at:
 
 ```
 output_dir/
-├── sources/{Category}/{slug}.md   # メタデータ（不変）
-├── evidence/{Category}/{slug}.md  # クレーム・数値の抽出
-└── wiki/papers/{Category}/{slug}.md  # 要約・解釈
+├── sources/{Category}/{slug}.md      # Metadata (title, authors, abstract, URL)
+├── evidence/{Category}/{slug}.md     # Claims & benchmarks — fill this in
+└── wiki/papers/{Category}/{slug}.md  # Synthesis & interpretation — fill this in
 ```
 
-## 動作要件
+`sources/` files are written once and never touched again.
+`evidence/` and `wiki/` files are only (re-)created when they still contain the unfilled template placeholder, so your edits are safe across re-runs.
+
+## Using with Claude Code
+
+Copy the skill file so `/arxiv-ingest` is available as a Claude Code command:
+
+```bash
+cp .claude/commands/arxiv-ingest.md ~/.claude/commands/
+# or into your project's .claude/commands/
+```
+
+After running `arxiv-ingest run`, invoke `/arxiv-ingest` in Claude Code.
+Claude reads each paper's abstract (and PDF when available) and fills in the `evidence/` and `wiki/` files automatically.
+
+## GitHub Actions: daily auto-ingest
+
+### Setup
+
+1. Fork or use this repo as a template
+2. Create a GitHub Fine-grained PAT with **Write** access to your wiki repo
+3. Add to your repo's **Settings → Secrets and variables → Actions**:
+
+   | Kind | Name | Value |
+   |------|------|-------|
+   | Secret | `GH_PAT` | your PAT |
+   | Variable | `WIKI_REPO` | `your-name/research-wiki` |
+
+4. Go to **Actions → Daily arXiv Ingest → Run workflow** to verify
+
+### Schedule
+
+- **Auto**: Mon–Fri UTC 01:00 (JST 10:00) — `cron: '0 1 * * 1-5'`
+- **Manual**: `workflow_dispatch` with optional `days_back` override
+
+## Requirements
 
 - Python 3.11+
-- [uv](https://docs.astral.sh/uv/)
-- Claude Code（`/arxiv-ingest` スキルを使う場合）
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
-## ライセンス
+## License
 
 MIT
