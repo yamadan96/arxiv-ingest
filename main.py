@@ -151,6 +151,70 @@ def cmd_status(args: list[str]) -> None:
         console.print("\n[green]All files filled.[/green]")
 
 
+def cmd_list(args: list[str]) -> None:
+    """List papers in data/fetched.json with optional filters."""
+    import json
+    import yaml
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+
+    only_unfilled = "--unfilled" in args
+    category_filter = next(
+        (a.split("=", 1)[1] for a in args if a.startswith("--category=")), None
+    )
+
+    fetched_path = Path("data/fetched.json")
+    if not fetched_path.exists():
+        console.print("[red]Error:[/red] data/fetched.json not found. Run 'arxiv-ingest fetch' first.")
+        sys.exit(1)
+
+    papers = json.loads(fetched_path.read_text())
+
+    if category_filter:
+        papers = [p for p in papers if p.get("wiki_category", "").lower() == category_filter.lower()]
+
+    if only_unfilled:
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            wiki_root = Path(config.get("output_dir", "research-wiki")).resolve()
+            from scripts.generate import is_template
+            papers = [
+                p for p in papers
+                if is_template(wiki_root / "evidence" / p["wiki_category"] / f"{p['slug']}.md")
+                or is_template(wiki_root / "wiki" / "papers" / p["wiki_category"] / f"{p['slug']}.md")
+            ]
+
+    if not papers:
+        console.print("[dim]No papers found.[/dim]")
+        return
+
+    title_parts = [f"{len(papers)} paper(s)"]
+    if category_filter:
+        title_parts.append(f"category={category_filter}")
+    if only_unfilled:
+        title_parts.append("unfilled only")
+
+    table = Table(title=" · ".join(title_parts))
+    table.add_column("Category", style="cyan", no_wrap=True)
+    table.add_column("Date", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("arXiv ID", style="dim", no_wrap=True)
+
+    for p in papers:
+        table.add_row(
+            p.get("wiki_category", ""),
+            p.get("published", ""),
+            p["title"][:70],
+            p["arxiv_id"],
+        )
+
+    console.print(table)
+
+
 def cmd_search(args: list[str]) -> None:
     """Search local wiki files for a keyword."""
     import re
@@ -327,6 +391,9 @@ def print_help() -> None:
         "                                               (requires: pip install 'arxiv-ingest[summarize]'\n"
         "                                                          ANTHROPIC_API_KEY env var)\n"
         "  arxiv-ingest run              fetch + generate in one step\n"
+        "  arxiv-ingest list             List papers in data/fetched.json\n"
+        "                                  --unfilled          only show unfilled papers\n"
+        "                                  --category=<name>   filter by wiki category\n"
         "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
         "  arxiv-ingest search <term>    Search local wiki files for a keyword\n"
         "  arxiv-ingest export           Export fetched papers to GitHub Issues (requires gh CLI)\n"
@@ -361,6 +428,7 @@ def main() -> None:
         "fetch": cmd_fetch,
         "generate": cmd_generate,
         "run": cmd_run,
+        "list": cmd_list,
         "status": cmd_status,
         "search": cmd_search,
         "export": cmd_export,
