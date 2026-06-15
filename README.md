@@ -1,5 +1,9 @@
 # arxiv-ingest
 
+[![Tests](https://github.com/yamadan96/arxiv-ingest/actions/workflows/tests.yml/badge.svg)](https://github.com/yamadan96/arxiv-ingest/actions/workflows/tests.yml)
+[![PyPI version](https://img.shields.io/pypi/v/arxiv-ingest)](https://pypi.org/project/arxiv-ingest/)
+[![Python 3.11+](https://img.shields.io/pypi/pyversions/arxiv-ingest)](https://pypi.org/project/arxiv-ingest/)
+
 **Fetch recent arXiv papers by keyword and scaffold them into structured research notes.**
 
 Works standalone as a CLI, or integrates with Claude Code for LLM-assisted evidence extraction and wiki generation.
