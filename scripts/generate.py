@@ -95,11 +95,20 @@ def load_config(config_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> Path:
+def is_template(path: Path, marker: str = "Claude Code が論文を読んで記入") -> bool:
+    """Return True if the file still contains unfilled template placeholder."""
+    return path.exists() and marker in path.read_text()
+
+
+def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
+    """Returns (path, created). Never overwrites existing sources files."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "sources" / category / f"{slug}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    if out.exists():
+        return out, False
 
     tags = [category.lower(), paper["matched_keyword"].lower().replace(" ", "-")]
     abstract_short = paper["abstract"][:300] + ("..." if len(paper["abstract"]) > 300 else "")
@@ -120,14 +129,18 @@ def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> Path:
         arxiv_categories=cats_yaml,
     )
     out.write_text(content)
-    return out
+    return out, True
 
 
-def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> Path:
+def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
+    """Returns (path, created). Skips if file exists and has been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "evidence" / category / f"{slug}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    if out.exists() and not is_template(out):
+        return out, False
 
     content = EVIDENCE_TEMPLATE.format(
         arxiv_id=paper["arxiv_id"],
@@ -135,14 +148,18 @@ def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> Path:
         date_added=date_added,
     )
     out.write_text(content)
-    return out
+    return out, True
 
 
-def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> Path:
+def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
+    """Returns (path, created). Skips if file exists and has been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
     out = wiki_root / "wiki" / "papers" / category / f"{slug}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    if out.exists() and not is_template(out):
+        return out, False
 
     tags = [category.lower(), paper["matched_keyword"].lower().replace(" ", "-")]
     tags_yaml = json.dumps(tags, ensure_ascii=False)
@@ -156,7 +173,7 @@ def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> Path:
         slug=slug,
     )
     out.write_text(content)
-    return out
+    return out, True
 
 
 def main() -> None:
@@ -168,16 +185,22 @@ def main() -> None:
     fetched = json.loads((root / "data" / "fetched.json").read_text())
     date_added = date.today().isoformat()
 
-    created = []
+    new_count = 0
+    skipped_count = 0
     for paper in fetched:
-        s = generate_sources(paper, wiki_root, date_added)
-        e = generate_evidence(paper, wiki_root, date_added)
-        w = generate_wiki(paper, wiki_root, date_added)
-        created.append((paper["wiki_category"], paper["title"][:55], s.name))
-        console.print(f"[green]✓[/green] {paper['wiki_category']}/{paper['slug']}")
+        _, s_new = generate_sources(paper, wiki_root, date_added)
+        _, e_new = generate_evidence(paper, wiki_root, date_added)
+        _, w_new = generate_wiki(paper, wiki_root, date_added)
+        if s_new or e_new or w_new:
+            new_count += 1
+            console.print(f"[green]✓ new[/green] {paper['wiki_category']}/{paper['slug']}")
+        else:
+            skipped_count += 1
+            console.print(f"[dim]skip[/dim] {paper['wiki_category']}/{paper['slug']}")
 
-    console.print(f"\n[bold]{len(created)} papers → {wiki_root}[/bold]")
-    console.print("[yellow]Next: run /arxiv-ingest to fill evidence & wiki with Claude[/yellow]")
+    console.print(f"\n[bold]{new_count} new, {skipped_count} skipped → {wiki_root}[/bold]")
+    if new_count:
+        console.print("[yellow]Next: run /arxiv-ingest to fill evidence & wiki with Claude[/yellow]")
 
 
 if __name__ == "__main__":
