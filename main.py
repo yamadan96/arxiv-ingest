@@ -321,6 +321,7 @@ def print_help() -> None:
         "Usage:\n"
         "  arxiv-ingest init [wiki-dir]  Create config.yaml and wiki directory skeleton\n"
         "  arxiv-ingest fetch            Fetch recent papers from arXiv (saves data/fetched.json)\n"
+        "                                  --since=YYYY-MM-DD  fetch from a specific date\n"
         "  arxiv-ingest generate         Generate skeleton files from fetched.json\n"
         "                                  --summarize  auto-fill evidence via Claude API\n"
         "                                               (requires: pip install 'arxiv-ingest[summarize]'\n"

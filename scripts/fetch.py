@@ -84,8 +84,24 @@ def fetch_papers(config: dict) -> list[dict]:
     return papers
 
 
+def _parse_since(argv: list[str]) -> int | None:
+    """Return days_back computed from --since=YYYY-MM-DD, or None if not given."""
+    for arg in argv:
+        if arg.startswith("--since="):
+            date_str = arg.split("=", 1)[1]
+            try:
+                since = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                console.print(f"[red]Error:[/red] --since must be YYYY-MM-DD, got: {date_str}")
+                sys.exit(1)
+            delta = datetime.now(timezone.utc) - since
+            return max(1, delta.days + 1)
+    return None
+
+
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
+    since_days = _parse_since(sys.argv)
 
     root = Path(__file__).parent.parent
     config_path = root / "config.yaml"
@@ -96,6 +112,9 @@ def main() -> None:
         )
         sys.exit(1)
     config = load_config(config_path)
+
+    if since_days is not None:
+        config["days_back"] = since_days
 
     if not config.get("keywords"):
         console.print("[red]Error:[/red] No keywords defined in config.yaml.")

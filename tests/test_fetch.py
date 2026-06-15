@@ -58,6 +58,26 @@ class TestMapCategory:
         assert map_category(["stat.ML"], self.CATEGORY_MAP) == "Pretraining"
 
 
+class TestParseSince:
+    def test_returns_none_when_absent(self) -> None:
+        from scripts.fetch import _parse_since
+        assert _parse_since(["fetch", "--dry-run"]) is None
+
+    def test_computes_days_back(self) -> None:
+        from datetime import date, timedelta
+        from scripts.fetch import _parse_since
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        result = _parse_since([f"--since={yesterday}"])
+        assert result == 2  # yesterday → days_back = 2
+
+    def test_today_gives_one(self) -> None:
+        from datetime import date
+        from scripts.fetch import _parse_since
+        today = date.today().isoformat()
+        result = _parse_since([f"--since={today}"])
+        assert result == 1
+
+
 class TestLoadConfig:
     def test_loads_yaml(self, tmp_path: Path) -> None:
         config = {"keywords": ["transformer"], "days_back": 3}
