@@ -208,6 +208,7 @@ def main() -> None:
     from datetime import date
 
     dry_run = "--dry-run" in sys.argv
+    summarize = "--summarize" in sys.argv
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
@@ -223,6 +224,18 @@ def main() -> None:
     fetched = json.loads(fetched_path.read_text())
     date_added = date.today().isoformat()
 
+    # Validate summarize dependencies early
+    if summarize and not dry_run:
+        try:
+            from scripts.summarize import summarize as _summarize_fn
+        except ImportError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            sys.exit(1)
+        import os
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            console.print("[red]Error:[/red] ANTHROPIC_API_KEY environment variable not set.")
+            sys.exit(1)
+
     new_count = 0
     skipped_count = 0
 
@@ -231,8 +244,19 @@ def main() -> None:
             s_new, e_new, w_new = _would_create(paper, wiki_root)
         else:
             _, s_new = generate_sources(paper, wiki_root, date_added)
-            _, e_new = generate_evidence(paper, wiki_root, date_added)
+            ev_path, e_new = generate_evidence(paper, wiki_root, date_added)
             _, w_new = generate_wiki(paper, wiki_root, date_added)
+
+            # Auto-fill evidence with LLM summary if requested
+            if summarize and e_new:
+                try:
+                    from scripts.summarize import fill_evidence
+                    from scripts.summarize import summarize as _summarize_fn
+                    summary = _summarize_fn(paper)
+                    fill_evidence(paper, ev_path, summary, date_added)
+                    console.print(f"[blue]∑ summarized[/blue] {paper['wiki_category']}/{paper['slug']}")
+                except Exception as exc:
+                    console.print(f"[yellow]summarize failed:[/yellow] {exc}")
 
         if s_new or e_new or w_new:
             new_count += 1
@@ -246,8 +270,10 @@ def main() -> None:
     console.print(f"\n[bold]{new_count} {label}, {skipped_count} skipped → {wiki_root}[/bold]")
     if dry_run:
         console.print("[yellow]Dry run — no files written.[/yellow]")
-    elif new_count:
-        console.print("[yellow]Next: run /arxiv-ingest to fill evidence & wiki with Claude[/yellow]")
+    elif new_count and not summarize:
+        console.print("[yellow]Tip: re-run with --summarize to auto-fill evidence via Claude.[/yellow]")
+    elif new_count and summarize:
+        console.print("[green]Evidence files auto-filled via Claude API.[/green]")
 
 
 if __name__ == "__main__":

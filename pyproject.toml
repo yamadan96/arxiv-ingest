@@ -1,6 +1,6 @@
 [project]
 name = "arxiv-ingest"
-version = "0.7.0"
+version = "0.8.0"
 description = "Fetch recent arXiv papers and scaffold them into a structured research wiki"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,9 @@ dependencies = [
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
 ]
+
+[project.optional-dependencies]
+summarize = ["anthropic>=0.40.0"]
 
 [project.scripts]
 arxiv-ingest = "main:main"
