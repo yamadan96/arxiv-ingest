@@ -1,0 +1,23 @@
+# arxiv-ingest configuration
+# Edit keywords and output_dir to match your setup
+
+output_dir: "../research-wiki"  # path to your research-wiki directory
+
+max_results: 20   # per keyword
+days_back: 7      # fetch papers from the last N days
+
+keywords:
+  - "Vision-Language Model"
+  - "LoRA fine-tuning"
+  - "Masked Autoencoder"
+  - "Physical AI robotics"
+  - "LLM reasoning"
+
+# arXiv category → research-wiki category mapping
+category_map:
+  cs.CV: "Multimodal"
+  cs.CL: "Post_Training"
+  cs.LG: "Architecture"
+  cs.AI: "Reasoning"
+  cs.RO: "Physical_AI"
+  stat.ML: "Pretraining"
