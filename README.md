@@ -16,9 +16,12 @@ Works standalone as a CLI, or integrates with Claude Code for LLM-assisted evide
 
 ```bash
 # Install (requires Python 3.11+)
+pip install arxiv-ingest
+
+# Or from source:
 git clone https://github.com/yamadan96/arxiv-ingest
 cd arxiv-ingest
-uv sync                         # or: pip install -e .
+uv sync
 
 # Configure
 cp config.yaml.example config.yaml
