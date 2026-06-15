@@ -57,3 +57,9 @@ category_map:
   cs.AI: "Reasoning"
   cs.RO: "Physical_AI"
   stat.ML: "Pretraining"
+
+# Optional: POST a summary to Slack or Discord when new papers are ingested.
+# Slack:   https://hooks.slack.com/services/xxx/yyy/zzz
+# Discord: https://discord.com/api/webhooks/xxx/yyy
+# Leave empty (or remove) to disable.
+# webhook_url: ""

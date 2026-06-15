@@ -275,6 +275,18 @@ def main() -> None:
     elif new_count and summarize:
         console.print("[green]Evidence files auto-filled via Claude API.[/green]")
 
+    # Webhook notification
+    if not dry_run and new_count:
+        webhook_url = config.get("webhook_url", "")
+        if webhook_url:
+            new_papers = [p for p in fetched if _would_create(p, wiki_root) != (False, False, False)]
+            try:
+                from scripts.notify import post_webhook
+                post_webhook(webhook_url, fetched[:new_count], str(wiki_root))
+                console.print("[green]Webhook notified.[/green]")
+            except Exception as exc:
+                console.print(f"[yellow]Webhook failed (non-fatal):[/yellow] {exc}")
+
 
 if __name__ == "__main__":
     main()
