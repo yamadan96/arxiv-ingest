@@ -242,15 +242,27 @@ cp .claude/commands/arxiv-ingest.md ~/.claude/commands/
 
    | 種別 | 名前 | 値 |
    |------|------|-----|
-   | Secret | `GH_PAT` | 作成した PAT |
-   | Variable | `WIKI_REPO` | `your-name/research-wiki` |
+   | Secret | `GH_PAT` | 作成した PAT（wiki/paper-survey リポジトリへの Write 権限が必要） |
+   | Variable | `WIKI_REPO` | `your-name/research-wiki`（3層 wiki モード用） |
+   | Variable | `PAPER_SURVEY_REPO` | `your-name/paper-survey`（Quartz モード用、任意） |
 
 4. **Actions → Daily arXiv Ingest → Run workflow** で動作確認
 
 ### スケジュール
 
 - **自動**: 平日 UTC 01:00（JST 10:00） — `cron: '0 1 * * 1-5'`
-- **手動**: `workflow_dispatch`（`days_back` と `summarize` を指定可能）
+- **手動**: `workflow_dispatch`（`days_back`・`summarize`・`quartz` を指定可能）
+
+### Quartz サイトへの自動デプロイ
+
+`workflow_dispatch` で `quartz: true` にすると、Quartz サイトに直接 push できます:
+
+```
+Actions → Daily arXiv Ingest → Run workflow → quartz: ✓
+```
+
+`PAPER_SURVEY_REPO` の `content/papers/{YYYY}/{slug}.md` にコミットされ、
+Quartz の deploy ワークフローが自動的にサイトをリビルドします。
 
 ## 動作要件
 

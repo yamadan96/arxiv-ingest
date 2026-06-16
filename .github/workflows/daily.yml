@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
       quartz:
-        description: 'Output Quartz-compatible files (content/papers/YYYY/slug.md) instead of 3-layer wiki'
+        description: 'Output Quartz-compatible files and push to PAPER_SURVEY_REPO'
         type: boolean
         default: false
 
@@ -30,12 +30,23 @@ jobs:
       - name: Checkout arxiv-ingest
         uses: actions/checkout@v4
 
+      # --- 3-layer wiki (quartz=false) ---
       - name: Checkout research-wiki
+        if: ${{ inputs.quartz != true }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.WIKI_REPO }}   # e.g. your-name/research-wiki
+          repository: ${{ vars.WIKI_REPO }}
           token: ${{ secrets.GH_PAT }}
           path: research-wiki
+
+      # --- Quartz site (quartz=true) ---
+      - name: Checkout paper-survey
+        if: ${{ inputs.quartz == true }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.PAPER_SURVEY_REPO }}
+          token: ${{ secrets.GH_PAT }}
+          path: paper-survey
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -50,13 +61,13 @@ jobs:
             uv sync
           fi
 
-      - name: Point config at checked-out wiki
+      - name: Point config at target wiki
         run: |
           python -c "
           import yaml, pathlib
           p = pathlib.Path('config.yaml')
           cfg = yaml.safe_load(p.read_text())
-          cfg['output_dir'] = 'research-wiki'
+          cfg['output_dir'] = 'paper-survey' if '${{ inputs.quartz }}' == 'true' else 'research-wiki'
           p.write_text(yaml.dump(cfg, allow_unicode=True))
           "
 
@@ -69,7 +80,7 @@ jobs:
             uv run arxiv-ingest fetch
           fi
 
-      - name: Generate research-wiki skeletons
+      - name: Generate wiki files
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -78,7 +89,9 @@ jobs:
           [ "${{ inputs.summarize }}" = "true" ] && FLAGS="$FLAGS --summarize"
           uv run arxiv-ingest generate $FLAGS
 
-      - name: Commit new files to research-wiki
+      # --- Commit to research-wiki (quartz=false) ---
+      - name: Commit to research-wiki
+        if: ${{ inputs.quartz != true }}
         working-directory: research-wiki
         run: |
           git config user.name "arxiv-ingest[bot]"
@@ -88,6 +101,22 @@ jobs:
             echo "No new papers to commit."
           else
             COUNT=$(git diff --staged --name-only | grep '^sources/' | wc -l | tr -d ' ')
+            git commit -m "auto: arXiv ingest $(date +%Y-%m-%d) [${COUNT} papers]"
+            git push
+          fi
+
+      # --- Commit to paper-survey (quartz=true) ---
+      - name: Commit to paper-survey
+        if: ${{ inputs.quartz == true }}
+        working-directory: paper-survey
+        run: |
+          git config user.name "arxiv-ingest[bot]"
+          git config user.email "arxiv-ingest@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No new papers to commit."
+          else
+            COUNT=$(git diff --staged --name-only | grep '^content/papers/' | wc -l | tr -d ' ')
             git commit -m "auto: arXiv ingest $(date +%Y-%m-%d) [${COUNT} papers]"
             git push
           fi

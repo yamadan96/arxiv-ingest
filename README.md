@@ -242,15 +242,27 @@ After `arxiv-ingest run`, invoke `/arxiv-ingest` in Claude Code. Claude reads ea
 
    | Kind | Name | Value |
    |------|------|-------|
-   | Secret | `GH_PAT` | your PAT |
-   | Variable | `WIKI_REPO` | `your-name/research-wiki` |
+   | Secret | `GH_PAT` | your PAT (needs Write access to wiki/paper-survey repos) |
+   | Variable | `WIKI_REPO` | `your-name/research-wiki` (3-layer wiki mode) |
+   | Variable | `PAPER_SURVEY_REPO` | `your-name/paper-survey` (Quartz mode, optional) |
 
 4. Go to **Actions → Daily arXiv Ingest → Run workflow** to verify
 
 ### Schedule
 
 - **Auto**: Mon–Fri UTC 01:00 — `cron: '0 1 * * 1-5'`
-- **Manual**: `workflow_dispatch` with optional `days_back` and `summarize` inputs
+- **Manual**: `workflow_dispatch` with `days_back`, `summarize`, and `quartz` inputs
+
+### Quartz auto-deploy
+
+Enable `quartz: true` in `workflow_dispatch` to push directly to your Quartz site:
+
+```
+Actions → Daily arXiv Ingest → Run workflow → quartz: ✓
+```
+
+Commits go to `PAPER_SURVEY_REPO` under `content/papers/{YYYY}/{slug}.md`.
+Quartz's own deploy workflow picks up the push and rebuilds the site automatically.
 
 ## Requirements
 
