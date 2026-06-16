@@ -13,6 +13,10 @@ on:
         description: 'Auto-fill evidence files via Claude API (requires ANTHROPIC_API_KEY secret)'
         type: boolean
         default: false
+      quartz:
+        description: 'Output Quartz-compatible files (content/papers/YYYY/slug.md) instead of 3-layer wiki'
+        type: boolean
+        default: false
 
 jobs:
   ingest:
@@ -69,11 +73,10 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ "${{ inputs.summarize }}" = "true" ]; then
-            uv run arxiv-ingest generate --summarize
-          else
-            uv run arxiv-ingest generate
-          fi
+          FLAGS=""
+          [ "${{ inputs.quartz }}" = "true" ] && FLAGS="$FLAGS --quartz"
+          [ "${{ inputs.summarize }}" = "true" ] && FLAGS="$FLAGS --summarize"
+          uv run arxiv-ingest generate $FLAGS
 
       - name: Commit new files to research-wiki
         working-directory: research-wiki
