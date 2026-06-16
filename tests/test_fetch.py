@@ -64,17 +64,18 @@ class TestParseSince:
         assert _parse_since(["fetch", "--dry-run"]) is None
 
     def test_computes_days_back(self) -> None:
-        from datetime import date, timedelta
+        from datetime import datetime, timedelta, timezone
         from scripts.fetch import _parse_since
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-        result = _parse_since([f"--since={yesterday}"])
-        assert result == 2  # yesterday → days_back = 2
+        # Use UTC date to match the function's internal UTC clock
+        yesterday_utc = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        result = _parse_since([f"--since={yesterday_utc}"])
+        assert result == 2  # yesterday UTC → days_back = 2
 
     def test_today_gives_one(self) -> None:
-        from datetime import date
+        from datetime import datetime, timezone
         from scripts.fetch import _parse_since
-        today = date.today().isoformat()
-        result = _parse_since([f"--since={today}"])
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        result = _parse_since([f"--since={today_utc}"])
         assert result == 1
 
 

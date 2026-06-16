@@ -2,13 +2,17 @@ name: Daily arXiv Ingest
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5'  # 月〜金 JST 10:00 (UTC 01:00)
+    - cron: '0 1 * * 1-5'   # Mon–Fri UTC 01:00 (JST 10:00)
   workflow_dispatch:
     inputs:
       days_back:
-        description: 'Fetch papers from last N days'
-        default: '1'
+        description: 'Fetch papers from last N days (leave blank to use config)'
+        default: ''
         required: false
+      summarize:
+        description: 'Auto-fill evidence files via Claude API (requires ANTHROPIC_API_KEY secret)'
+        type: boolean
+        default: false
 
 jobs:
   ingest:
@@ -23,7 +27,7 @@ jobs:
       - name: Checkout research-wiki
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.WIKI_REPO }}   # 例: yamadan96/research-wiki
+          repository: ${{ vars.WIKI_REPO }}   # e.g. your-name/research-wiki
           token: ${{ secrets.GH_PAT }}
           path: research-wiki
 
@@ -33,33 +37,41 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync
-
-      - name: Override days_back (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
         run: |
-          python - <<'EOF'
-          import yaml, re, sys
-          path = "config.yaml"
-          text = open(path).read()
-          text = re.sub(r'^days_back:.*$', f'days_back: ${{ inputs.days_back }}', text, flags=re.MULTILINE)
-          open(path, "w").write(text)
-          EOF
+          if [ "${{ inputs.summarize }}" = "true" ]; then
+            uv sync --extra summarize
+          else
+            uv sync
+          fi
+
+      - name: Point config at checked-out wiki
+        run: |
+          python -c "
+          import yaml, pathlib
+          p = pathlib.Path('config.yaml')
+          cfg = yaml.safe_load(p.read_text())
+          cfg['output_dir'] = 'research-wiki'
+          p.write_text(yaml.dump(cfg, allow_unicode=True))
+          "
 
       - name: Fetch papers from arXiv
-        run: uv run python scripts/fetch.py
+        run: |
+          if [ -n "${{ inputs.days_back }}" ]; then
+            SINCE=$(date -d "${{ inputs.days_back }} days ago" +%Y-%m-%d)
+            uv run arxiv-ingest fetch --since="${SINCE}"
+          else
+            uv run arxiv-ingest fetch
+          fi
 
       - name: Generate research-wiki skeletons
         env:
-          OUTPUT_DIR: research-wiki
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          python - <<'EOF'
-          import yaml, pathlib
-          cfg = yaml.safe_load(open("config.yaml"))
-          cfg["output_dir"] = "research-wiki"
-          open("config.yaml", "w").write(yaml.dump(cfg, allow_unicode=True))
-          EOF
-          uv run python scripts/generate.py
+          if [ "${{ inputs.summarize }}" = "true" ]; then
+            uv run arxiv-ingest generate --summarize
+          else
+            uv run arxiv-ingest generate
+          fi
 
       - name: Commit new files to research-wiki
         working-directory: research-wiki

@@ -100,6 +100,62 @@ sources: [src-{arxiv_id}]
 - ?
 """
 
+# Obsidian variant: uses [[wikilinks]] for graph view connectivity
+WIKI_TEMPLATE_OBSIDIAN = """\
+{marker}
+---
+title: "{title}"
+aliases: []
+created: {date_added}
+updated: {date_added}
+tags: {tags}
+sources: [src-{arxiv_id}]
+---
+
+# {title}
+
+## Facts from source
+- (fill in) [[{slug}]]
+
+## Current interpretation
+(synthesis, analysis, judgment)
+
+## Related pages
+- [[]]
+
+## Open questions
+- ?
+"""
+
+EVIDENCE_TEMPLATE_OBSIDIAN = """\
+{marker}
+---
+source: src-{arxiv_id}
+date_extracted: {date_added}
+---
+
+> Source paper: [[{slug}]]
+
+# Extracted claims: {title}
+
+## Key claims
+- (fill in)
+
+## Contributions
+-
+
+## Limitations
+-
+
+## Benchmark results
+| Benchmark | Score | Notes |
+|-----------|-------|-------|
+| | | |
+
+## Implementation notes
+-
+"""
+
 
 def load_config(config_path: Path) -> dict:
     if not config_path.exists():
@@ -146,7 +202,9 @@ def generate_sources(paper: dict, wiki_root: Path, date_added: str) -> tuple[Pat
     return out, True
 
 
-def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
+def generate_evidence(
+    paper: dict, wiki_root: Path, date_added: str, obsidian: bool = False
+) -> tuple[Path, bool]:
     """Create evidence file. Skips if file exists and has already been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
@@ -156,17 +214,21 @@ def generate_evidence(paper: dict, wiki_root: Path, date_added: str) -> tuple[Pa
     if out.exists() and not is_template(out):
         return out, False
 
-    content = EVIDENCE_TEMPLATE.format(
+    template = EVIDENCE_TEMPLATE_OBSIDIAN if obsidian else EVIDENCE_TEMPLATE
+    content = template.format(
         marker=_TEMPLATE_MARKER,
         arxiv_id=paper["arxiv_id"],
         title=paper["title"],
         date_added=date_added,
+        slug=slug,
     )
     out.write_text(content)
     return out, True
 
 
-def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, bool]:
+def generate_wiki(
+    paper: dict, wiki_root: Path, date_added: str, obsidian: bool = False
+) -> tuple[Path, bool]:
     """Create wiki page. Skips if file exists and has already been filled in."""
     category = paper["wiki_category"]
     slug = paper["slug"]
@@ -177,8 +239,9 @@ def generate_wiki(paper: dict, wiki_root: Path, date_added: str) -> tuple[Path, 
         return out, False
 
     tags = [category.lower(), paper["matched_keyword"].lower().replace(" ", "-")]
+    template = WIKI_TEMPLATE_OBSIDIAN if obsidian else WIKI_TEMPLATE
 
-    content = WIKI_TEMPLATE.format(
+    content = template.format(
         marker=_TEMPLATE_MARKER,
         title=paper["title"].replace('"', '\\"'),
         date_added=date_added,
@@ -209,6 +272,7 @@ def main() -> None:
 
     dry_run = "--dry-run" in sys.argv
     summarize = "--summarize" in sys.argv
+    obsidian = "--obsidian" in sys.argv
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
@@ -244,8 +308,8 @@ def main() -> None:
             s_new, e_new, w_new = _would_create(paper, wiki_root)
         else:
             _, s_new = generate_sources(paper, wiki_root, date_added)
-            ev_path, e_new = generate_evidence(paper, wiki_root, date_added)
-            _, w_new = generate_wiki(paper, wiki_root, date_added)
+            ev_path, e_new = generate_evidence(paper, wiki_root, date_added, obsidian=obsidian)
+            _, w_new = generate_wiki(paper, wiki_root, date_added, obsidian=obsidian)
 
             # Auto-fill evidence with LLM summary if requested
             if summarize and e_new:

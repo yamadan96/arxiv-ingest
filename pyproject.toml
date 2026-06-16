@@ -1,6 +1,6 @@
 [project]
 name = "arxiv-ingest"
-version = "0.11.0"
+version = "0.17.0"
 description = "Fetch recent arXiv papers and scaffold them into a structured research wiki"
 readme = "README.md"
 requires-python = ">=3.11"

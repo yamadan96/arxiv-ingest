@@ -9,7 +9,10 @@ _PACKAGE_ROOT = Path(__file__).parent
 
 def cmd_init(args: list[str]) -> None:
     """Scaffold a new wiki directory and create config.yaml."""
-    wiki_dir = Path(args[0]) if args else Path("research-wiki")
+    import json as _json
+    obsidian = "--obsidian" in args
+    plain_args = [a for a in args if a != "--obsidian"]
+    wiki_dir = Path(plain_args[0]) if plain_args else Path("research-wiki")
     config_dest = Path("config.yaml")
 
     created: list[str] = []
@@ -24,7 +27,6 @@ def cmd_init(args: list[str]) -> None:
             shutil.copy(example, config_dest)
         else:
             _write_default_config(config_dest, wiki_dir)
-        # Point output_dir at the wiki dir we're about to create
         _patch_output_dir(config_dest, wiki_dir)
         created.append(str(config_dest))
 
@@ -42,6 +44,20 @@ def cmd_init(args: list[str]) -> None:
     # data/ dir for fetched.json
     Path("data").mkdir(exist_ok=True)
 
+    # Obsidian: create .obsidian/app.json inside the wiki directory
+    if obsidian:
+        obsidian_dir = wiki_dir / ".obsidian"
+        obsidian_dir.mkdir(exist_ok=True)
+        app_json = obsidian_dir / "app.json"
+        if not app_json.exists():
+            app_json.write_text(_json.dumps({
+                "useMarkdownLinks": False,
+                "newLinkFormat": "shortest",
+            }, indent=2) + "\n")
+            created.append(str(app_json))
+        else:
+            skipped.append(str(app_json))
+
     created.append(str(wiki_dir))
 
     print("arxiv-ingest init complete\n")
@@ -49,11 +65,19 @@ def cmd_init(args: list[str]) -> None:
         print(f"  created  {p}")
     for p in skipped:
         print(f"  skipped  {p}  (already exists)")
-    print(
+
+    next_steps = (
         "\nNext steps:\n"
-        f"  1. Edit config.yaml — set your keywords\n"
-        f"  2. Run: arxiv-ingest run\n"
+        "  1. Edit config.yaml — set your keywords\n"
     )
+    if obsidian:
+        next_steps += (
+            f"  2. Open {wiki_dir} as an Obsidian vault\n"
+            "  3. Run: arxiv-ingest run --obsidian\n"
+        )
+    else:
+        next_steps += "  2. Run: arxiv-ingest run\n"
+    print(next_steps)
 
 
 def _patch_output_dir(config_path: Path, wiki_dir: Path) -> None:
@@ -151,6 +175,64 @@ def cmd_status(args: list[str]) -> None:
         console.print("\n[green]All files filled.[/green]")
 
 
+def cmd_open(args: list[str]) -> None:
+    """Open a paper's arXiv page in the default browser."""
+    import json
+    import webbrowser
+    from rich.console import Console
+
+    console = Console()
+
+    if not args:
+        console.print("[red]Error:[/red] provide an arXiv ID or slug.")
+        console.print("Usage: arxiv-ingest open <arxiv-id|slug>")
+        sys.exit(1)
+
+    query = args[0].strip()
+
+    fetched_path = Path("data/fetched.json")
+    if not fetched_path.exists():
+        console.print("[red]Error:[/red] data/fetched.json not found. Run 'arxiv-ingest fetch' first.")
+        sys.exit(1)
+
+    papers = json.loads(fetched_path.read_text())
+
+    match = None
+    for p in papers:
+        if (query == p["arxiv_id"]
+                or query == p["arxiv_id"].split("v")[0]
+                or query == p["slug"]):
+            match = p
+            break
+
+    if not match:
+        console.print(f"[red]No paper found matching:[/red] {query}")
+        console.print("Run [cyan]arxiv-ingest list[/cyan] to see available papers.")
+        sys.exit(1)
+
+    url = match["url"]
+    console.print(f"Opening {match['title'][:60]}")
+    console.print(f"  {url}")
+    webbrowser.open(url)
+
+
+def cmd_version(args: list[str]) -> None:
+    """Print the installed package version."""
+    try:
+        from importlib.metadata import version
+        print(version("arxiv-ingest"))
+    except Exception:
+        # Fallback: read version from pyproject.toml in the package root
+        import re
+        toml = _PACKAGE_ROOT / "pyproject.toml"
+        if toml.exists():
+            m = re.search(r'^version\s*=\s*"([^"]+)"', toml.read_text(), re.MULTILINE)
+            if m:
+                print(m.group(1))
+                return
+        print("unknown")
+
+
 def cmd_list(args: list[str]) -> None:
     """List papers in data/fetched.json with optional filters."""
     import json
@@ -161,8 +243,12 @@ def cmd_list(args: list[str]) -> None:
     console = Console()
 
     only_unfilled = "--unfilled" in args
+    json_output = "--json" in args
     category_filter = next(
         (a.split("=", 1)[1] for a in args if a.startswith("--category=")), None
+    )
+    limit = next(
+        (int(a.split("=", 1)[1]) for a in args if a.startswith("--limit=")), None
     )
 
     fetched_path = Path("data/fetched.json")
@@ -187,6 +273,13 @@ def cmd_list(args: list[str]) -> None:
                 if is_template(wiki_root / "evidence" / p["wiki_category"] / f"{p['slug']}.md")
                 or is_template(wiki_root / "wiki" / "papers" / p["wiki_category"] / f"{p['slug']}.md")
             ]
+
+    if limit is not None:
+        papers = papers[:limit]
+
+    if json_output:
+        print(json.dumps(papers, ensure_ascii=False, indent=2))
+        return
 
     if not papers:
         console.print("[dim]No papers found.[/dim]")
@@ -217,6 +310,7 @@ def cmd_list(args: list[str]) -> None:
 
 def cmd_search(args: list[str]) -> None:
     """Search local wiki files for a keyword."""
+    import json
     import re
     import yaml
     from rich.console import Console
@@ -224,11 +318,14 @@ def cmd_search(args: list[str]) -> None:
 
     console = Console()
 
-    if not args:
+    json_output = "--json" in args
+    plain_args = [a for a in args if a != "--json"]
+
+    if not plain_args:
         console.print("[red]Error:[/red] provide a search term. Usage: arxiv-ingest search <term>")
         sys.exit(1)
 
-    query = " ".join(args).lower()
+    query = " ".join(plain_args).lower()
 
     config_path = Path("config.yaml")
     if not config_path.exists():
@@ -243,7 +340,8 @@ def cmd_search(args: list[str]) -> None:
         console.print(f"[red]Error:[/red] Wiki directory not found: {wiki_root}")
         sys.exit(1)
 
-    results: list[tuple[str, str, str]] = []  # (layer, slug, snippet)
+    # (layer, slug, rel_path, plain_snippet, rich_snippet)
+    results: list[tuple[str, str, str, str, str]] = []
 
     for md in sorted(wiki_root.rglob("*.md")):
         text = md.read_text()
@@ -259,15 +357,21 @@ def cmd_search(args: list[str]) -> None:
         idx = text.lower().find(query)
         start = max(0, idx - 40)
         end = min(len(text), idx + len(query) + 60)
-        snippet = text[start:end].replace("\n", " ").strip()
-        # Highlight the match
-        snippet = re.sub(
-            re.escape(query), f"[bold yellow]{query}[/bold yellow]", snippet,
+        plain = text[start:end].replace("\n", " ").strip()
+        rich_snippet = re.sub(
+            re.escape(query), f"[bold yellow]{query}[/bold yellow]", plain,
             flags=re.IGNORECASE,
         )
 
-        slug = md.stem
-        results.append((layer, slug, snippet))
+        results.append((layer, md.stem, str(rel), plain, rich_snippet))
+
+    if json_output:
+        print(json.dumps(
+            [{"layer": l, "file": slug, "path": path, "snippet": plain}
+             for l, slug, path, plain, _ in results],
+            ensure_ascii=False, indent=2,
+        ))
+        return
 
     if not results:
         console.print(f"No results for [bold]{query}[/bold]")
@@ -278,14 +382,72 @@ def cmd_search(args: list[str]) -> None:
     table.add_column("File")
     table.add_column("Snippet")
 
-    for layer, slug, snippet in results:
-        table.add_row(layer, slug[:50], snippet[:100])
+    for layer, slug, _path, _plain, rich in results:
+        table.add_row(layer, slug[:50], rich[:120])
 
     console.print(table)
 
 
+def _to_csv(papers: list[dict]) -> str:
+    """Format papers as CSV (title, authors, date, category, arXiv ID, URL)."""
+    import csv
+    import io
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["title", "authors", "published", "category", "arxiv_id", "url", "matched_keyword"])
+    for p in papers:
+        writer.writerow([
+            p["title"],
+            "; ".join(p["authors"][:10]),
+            p["published"],
+            p["wiki_category"],
+            p["arxiv_id"],
+            p["url"],
+            p["matched_keyword"],
+        ])
+    return out.getvalue()
+
+
+def _bibtex_key(paper: dict) -> str:
+    """Generate a BibTeX cite key: firstauthorYYYYfirstword."""
+    if not paper["authors"]:
+        first_author = "unknown"
+    else:
+        name = paper["authors"][0]
+        # Handle "Last, First" (BibTeX style) and "First Last" (natural order)
+        first_author = (name.split(",")[0] if "," in name else name.split()[-1]).strip().lower()
+    year = paper["published"][:4]
+    title_words = [w.lower() for w in paper["title"].split() if w.isalpha()]
+    short = title_words[0] if title_words else "paper"
+    return f"{first_author}{year}{short}"
+
+
+def _to_bibtex(paper: dict) -> str:
+    """Format a single paper as a BibTeX @misc entry."""
+    key = _bibtex_key(paper)
+    authors = " and ".join(paper["authors"][:10])
+    year = paper["published"][:4]
+    # Strip version suffix from arXiv ID for eprint field (2501.00001v1 → 2501.00001)
+    eprint = paper["arxiv_id"].split("v")[0]
+    primary = paper["arxiv_categories"][0] if paper["arxiv_categories"] else ""
+    title = paper["title"].replace("{", r"\{").replace("}", r"\}")
+
+    lines = [
+        f"@misc{{{key},",
+        f"  title        = {{{title}}},",
+        f"  author       = {{{authors}}},",
+        f"  year         = {{{year}}},",
+        f"  eprint       = {{{eprint}}},",
+        f"  archivePrefix= {{arXiv}},",
+        f"  primaryClass = {{{primary}}},",
+        f"  url          = {{{paper['url']}}},",
+        "}",
+    ]
+    return "\n".join(lines)
+
+
 def cmd_export(args: list[str]) -> None:
-    """Export fetched papers to GitHub Issues via gh CLI."""
+    """Export fetched papers to GitHub Issues or BibTeX."""
     import json
     import subprocess
     import yaml
@@ -295,15 +457,10 @@ def cmd_export(args: list[str]) -> None:
 
     # Parse flags
     dry_run = "--dry-run" in args
+    fmt = next((a.split("=", 1)[1] for a in args if a.startswith("--format=")), "issues")
     repo = next((a for a in args if a.startswith("--repo=")), None)
     repo_arg = repo.split("=", 1)[1] if repo else None
-
-    # Check gh is available
-    try:
-        subprocess.run(["gh", "--version"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        console.print("[red]Error:[/red] gh CLI not found. Install: https://cli.github.com/")
-        sys.exit(1)
+    limit = next((int(a.split("=", 1)[1]) for a in args if a.startswith("--limit=")), None)
 
     fetched_path = Path("data/fetched.json")
     if not fetched_path.exists():
@@ -311,6 +468,26 @@ def cmd_export(args: list[str]) -> None:
         sys.exit(1)
 
     papers = json.loads(fetched_path.read_text())
+    if limit is not None:
+        papers = papers[:limit]
+
+    # BibTeX output — no gh CLI needed
+    if fmt == "bibtex":
+        entries = [_to_bibtex(p) for p in papers]
+        print("\n\n".join(entries))
+        return
+
+    # CSV output — no gh CLI needed
+    if fmt == "csv":
+        print(_to_csv(papers), end="")
+        return
+
+    # Check gh is available (issues mode only)
+    try:
+        subprocess.run(["gh", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        console.print("[red]Error:[/red] gh CLI not found. Install: https://cli.github.com/")
+        sys.exit(1)
 
     # Category → label mapping
     label_map = {
@@ -374,6 +551,7 @@ def cmd_run(args: list[str]) -> None:
     """Fetch + generate in one step."""
     from scripts.fetch import main as fetch_main
     from scripts.generate import main as generate_main
+    sys.argv = ["fetch"] + args
     fetch_main()
     generate_main()
 
@@ -384,9 +562,11 @@ def print_help() -> None:
         "\n"
         "Usage:\n"
         "  arxiv-ingest init [wiki-dir]  Create config.yaml and wiki directory skeleton\n"
+        "                                  --obsidian  also create .obsidian/app.json\n"
         "  arxiv-ingest fetch            Fetch recent papers from arXiv (saves data/fetched.json)\n"
         "                                  --since=YYYY-MM-DD  fetch from a specific date\n"
         "  arxiv-ingest generate         Generate skeleton files from fetched.json\n"
+        "                                  --obsidian   use [[wikilinks]] (Obsidian-compatible)\n"
         "                                  --summarize  auto-fill evidence via Claude API\n"
         "                                               (requires: pip install 'arxiv-ingest[summarize]'\n"
         "                                                          ANTHROPIC_API_KEY env var)\n"
@@ -394,11 +574,19 @@ def print_help() -> None:
         "  arxiv-ingest list             List papers in data/fetched.json\n"
         "                                  --unfilled          only show unfilled papers\n"
         "                                  --category=<name>   filter by wiki category\n"
+        "                                  --limit=<N>         show at most N papers\n"
+        "                                  --json              output raw JSON (pipe to jq)\n"
         "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
         "  arxiv-ingest search <term>    Search local wiki files for a keyword\n"
-        "  arxiv-ingest export           Export fetched papers to GitHub Issues (requires gh CLI)\n"
-        "                                  --repo=owner/repo  target repository\n"
-        "                                  --dry-run          preview without creating\n"
+        "                                  --json              output raw JSON\n"
+        "  arxiv-ingest export           Export fetched papers (default: GitHub Issues)\n"
+        "                                  --format=bibtex    output BibTeX to stdout\n"
+        "                                  --format=csv       output CSV to stdout\n"
+        "                                  --limit=<N>        export at most N papers\n"
+        "                                  --repo=owner/repo  GitHub Issues: target repository\n"
+        "                                  --dry-run          GitHub Issues: preview without creating\n"
+        "  arxiv-ingest open <id|slug>   Open a paper's arXiv page in the browser\n"
+        "  arxiv-ingest version          Print the installed version\n"
         "\n"
         "Flags:\n"
         "  --dry-run   Preview what would be fetched or created without writing any files\n"
@@ -432,6 +620,8 @@ def main() -> None:
         "status": cmd_status,
         "search": cmd_search,
         "export": cmd_export,
+        "open": cmd_open,
+        "version": cmd_version,
     }
 
     if cmd not in commands:
