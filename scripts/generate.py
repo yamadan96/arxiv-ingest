@@ -83,7 +83,11 @@ created: {date_added}
 updated: {date_added}
 tags: {tags}
 sources: [src-{arxiv_id}]
+peer_review: preprint
+venue: ""
 ---
+
+> **Peer review**: preprint
 
 # {title}
 
@@ -95,6 +99,8 @@ sources: [src-{arxiv_id}]
 
 ## Related pages
 -
+
+-> Details: [evidence](../../../evidence/{category}/{slug}.md)
 
 ## Open questions
 - ?
@@ -110,7 +116,11 @@ created: {date_added}
 updated: {date_added}
 tags: {tags}
 sources: [src-{arxiv_id}]
+peer_review: preprint
+venue: ""
 ---
+
+> **Peer review**: preprint
 
 # {title}
 
@@ -122,6 +132,8 @@ sources: [src-{arxiv_id}]
 
 ## Related pages
 - [[]]
+
+-> Details: [evidence](../../../evidence/{category}/{slug}.md)
 
 ## Open questions
 - ?
@@ -251,7 +263,74 @@ def generate_wiki(
         slug=slug,
     )
     out.write_text(content)
+
+    # Create figures directory for this paper
+    figures_dir = wiki_root / "figures" / category / slug
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
     return out, True
+
+
+def _update_recent(wiki_root: Path, paper: dict, date_added: str) -> None:
+    """Append a paper entry to index/recent.md under its date section."""
+    recent = wiki_root / "index" / "recent.md"
+    if not recent.exists():
+        return
+    slug = paper["slug"]
+    category = paper.get("wiki_category", "")
+    title = paper["title"]
+    arxiv_id = paper["arxiv_id"]
+    line = f"- [{title}](../wiki/papers/{category}/{slug}.md) `{arxiv_id}` — {date_added}\n"
+    content = recent.read_text()
+    date_header = f"\n## {date_added}\n"
+    if date_header in content:
+        idx = content.index(date_header) + len(date_header)
+        content = content[:idx] + line + content[idx:]
+    else:
+        content = content.rstrip() + f"\n{date_header}{line}"
+    recent.write_text(content)
+
+
+def _update_log(wiki_root: Path, papers_added: list[dict], date_added: str) -> None:
+    """Append a batch of papers to log.md after the header."""
+    log = wiki_root / "log.md"
+    if not log.exists():
+        return
+    lines = [f"\n## {date_added}\n\n"]
+    for p in papers_added:
+        lines.append(f"- **Added**: {p['title']} (`{p['arxiv_id']}`)\n")
+        lines.append(f"  - `sources/{p.get('wiki_category', '')}/{p['slug']}.md`\n")
+        lines.append(f"  - `evidence/{p.get('wiki_category', '')}/{p['slug']}.md`\n")
+        lines.append(f"  - `wiki/papers/{p.get('wiki_category', '')}/{p['slug']}.md`\n")
+    log_content = log.read_text()
+    header_end = log_content.find("\n", log_content.find("# ")) + 1
+    log.write_text(log_content[:header_end] + "".join(lines) + log_content[header_end:])
+
+
+def _update_peer_review(wiki_root: Path, paper: dict) -> None:
+    """Append a paper to the preprint section of index/peer-review.md."""
+    pr_file = wiki_root / "index" / "peer-review.md"
+    if not pr_file.exists():
+        return
+    slug = paper["slug"]
+    category = paper.get("wiki_category", "")
+    title = paper["title"]
+    arxiv_id = paper["arxiv_id"]
+    row = f"| [{title}](../wiki/papers/{category}/{slug}.md) | {arxiv_id} |\n"
+    content = pr_file.read_text()
+    # Find the end of the preprint table (before next ## or end of file)
+    preprint_idx = content.find("## preprint")
+    if preprint_idx == -1:
+        return
+    # Find the next ## after preprint, or end of file
+    next_section = content.find("\n## ", preprint_idx + 1)
+    if next_section == -1:
+        # Append at end of file
+        content = content.rstrip() + "\n" + row
+    else:
+        # Insert before next section
+        content = content[:next_section] + row + content[next_section:]
+    pr_file.write_text(content)
 
 
 def _would_create(paper: dict, wiki_root: Path) -> tuple[bool, bool, bool]:
@@ -302,6 +381,7 @@ def main() -> None:
 
     new_count = 0
     skipped_count = 0
+    papers_added: list[dict] = []
 
     for paper in fetched:
         if dry_run:
@@ -324,11 +404,20 @@ def main() -> None:
 
         if s_new or e_new or w_new:
             new_count += 1
+            if not dry_run:
+                papers_added.append(paper)
             prefix = "[yellow]would create[/yellow]" if dry_run else "[green]✓ new[/green]"
             console.print(f"{prefix} {paper['wiki_category']}/{paper['slug']}")
         else:
             skipped_count += 1
             console.print(f"[dim]skip[/dim] {paper['wiki_category']}/{paper['slug']}")
+
+    # Update index files for newly added papers
+    if not dry_run and papers_added:
+        for p in papers_added:
+            _update_recent(wiki_root, p, date_added)
+            _update_peer_review(wiki_root, p)
+        _update_log(wiki_root, papers_added, date_added)
 
     label = "would create" if dry_run else "new"
     console.print(f"\n[bold]{new_count} {label}, {skipped_count} skipped → {wiki_root}[/bold]")

@@ -41,8 +41,20 @@ def cmd_init(args: list[str]) -> None:
         d = wiki_dir / "wiki" / "papers" / cat
         d.mkdir(parents=True, exist_ok=True)
 
+    # Extended directories
+    for extra_dir in (
+        "wiki/topics", "wiki/models", "wiki/comparisons",
+        "wiki/benchmarks", "wiki/engineering",
+        "decisions", "figures", "index", "presentations",
+    ):
+        (wiki_dir / extra_dir).mkdir(parents=True, exist_ok=True)
+
     # data/ dir for fetched.json
     Path("data").mkdir(exist_ok=True)
+
+    # Skeleton files (create only if missing)
+    _init_skeleton_files(wiki_dir)
+    created.append("skeleton files")
 
     # Obsidian: create .obsidian/app.json inside the wiki directory
     if obsidian:
@@ -78,6 +90,117 @@ def cmd_init(args: list[str]) -> None:
     else:
         next_steps += "  2. Run: arxiv-ingest run\n"
     print(next_steps)
+
+
+def _init_skeleton_files(wiki_dir: Path) -> None:
+    """Create skeleton index/log files if they do not already exist."""
+    skeletons: dict[str, str] = {
+        "log.md": (
+            "# Change Log\n"
+            "\n"
+            "All changes are recorded here in reverse chronological order.\n"
+        ),
+        "wiki/index.md": (
+            "# Research Wiki Index\n"
+            "\n"
+            "Papers and topics are grouped by theme."
+            " Edit this file manually — do not sort mechanically.\n"
+        ),
+        "index/recent.md": "# Recently Added\n",
+        "index/topics.md": (
+            "# Topic Index\n"
+            "\n"
+            "| Topic | Page | Sources | Updated |\n"
+            "|-------|------|---------|---------|"
+            "\n"
+        ),
+        "index/models.md": (
+            "# Model Index\n"
+            "\n"
+            "| Model | Page | Organization | Year |\n"
+            "|-------|------|-------------|------|"
+            "\n"
+        ),
+        "index/peer-review.md": (
+            "# Peer-Review Status\n"
+            "\n"
+            "## accepted\n"
+            "\n"
+            "| Paper | Venue | Year |\n"
+            "|-------|-------|------|\n"
+            "\n"
+            "## workshop\n"
+            "\n"
+            "| Paper | Venue | Year |\n"
+            "|-------|-------|------|\n"
+            "\n"
+            "## under-review\n"
+            "\n"
+            "| Paper | Venue | Year |\n"
+            "|-------|-------|------|\n"
+            "\n"
+            "## preprint\n"
+            "\n"
+            "| Paper | arXiv ID |\n"
+            "|-------|----------|\n"
+        ),
+        "index/open-questions.md": "# Open Questions\n",
+    }
+
+    # SCHEMA.md uses {wiki_dir} substitution
+    schema_content = (
+        "# Research Wiki Schema\n"
+        "\n"
+        "This file defines the operating conventions for the entire wiki.\n"
+        "\n"
+        "## Directory Structure\n"
+        "\n"
+        "```\n"
+        f"{wiki_dir}/\n"
+        "├── SCHEMA.md\n"
+        "├── log.md\n"
+        "├── sources/{{Category}}/{{slug}}.md\n"
+        "├── evidence/{{Category}}/{{slug}}.md\n"
+        "├── wiki/papers/{{Category}}/{{slug}}.md\n"
+        "├── wiki/topics/{{Category}}/{{slug}}.md\n"
+        "├── wiki/models/{{slug}}.md\n"
+        "├── wiki/comparisons/{{slug}}.md\n"
+        "├── wiki/benchmarks/{{slug}}.md\n"
+        "├── wiki/engineering/{{slug}}.md\n"
+        "├── wiki/index.md\n"
+        "├── figures/{{Category}}/{{slug}}/\n"
+        "├── decisions/{{slug}}.md\n"
+        "├── index/recent.md\n"
+        "├── index/topics.md\n"
+        "├── index/models.md\n"
+        "├── index/peer-review.md\n"
+        "├── index/open-questions.md\n"
+        "└── presentations/{{date}}/\n"
+        "```\n"
+        "\n"
+        "## Dedup Sentinel\n"
+        "\n"
+        "Files containing `<!-- arxiv-ingest: unfilled -->` are templates"
+        " and will be regenerated.\n"
+        "Files without this sentinel have been manually edited"
+        " and will never be overwritten.\n"
+        "\n"
+        "## peer_review Values\n"
+        "\n"
+        "`accepted` | `workshop` | `under-review` | `preprint` | `n/a`\n"
+        "\n"
+        "## File Status Values\n"
+        "\n"
+        "`unprocessed` | `processed` | `stale`\n"
+    )
+    skeletons["SCHEMA.md"] = schema_content
+
+    for rel_path, content in skeletons.items():
+        target = wiki_dir / rel_path
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
 
 
 def _patch_output_dir(config_path: Path, wiki_dir: Path) -> None:

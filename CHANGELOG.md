@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-06-16
+
+### Added
+- Extended `init` scaffold: `wiki/topics/`, `wiki/models/`, `wiki/comparisons/`, `wiki/benchmarks/`, `wiki/engineering/`, `decisions/`, `figures/`, `index/`, `presentations/` directories
+- `init` now creates skeleton index files: `index/recent.md`, `index/topics.md`, `index/models.md`, `index/peer-review.md`, `index/open-questions.md`, `log.md`, `wiki/index.md`, `SCHEMA.md`
+- `generate` auto-appends to `index/recent.md` when new papers are added
+- `generate` auto-appends to `log.md` after each run
+- `generate` auto-appends to `index/peer-review.md` (preprint section) for new papers
+- `generate` auto-creates `figures/{Category}/{slug}/` directory for each new paper
+- `wiki/papers/` template now includes `peer_review: preprint`, `venue: ""` frontmatter fields, peer-review banner, and evidence link
+
 ## [0.17.0] - 2026-06-16
 
 ### Added

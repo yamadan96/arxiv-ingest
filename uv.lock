@@ -58,7 +58,7 @@ wheels = [
 
 [[package]]
 name = "arxiv-ingest"
-version = "0.16.0"
+version = "0.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "arxiv" },
