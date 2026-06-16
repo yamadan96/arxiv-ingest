@@ -11,7 +11,8 @@ def cmd_init(args: list[str]) -> None:
     """Scaffold a new wiki directory and create config.yaml."""
     import json as _json
     obsidian = "--obsidian" in args
-    plain_args = [a for a in args if a != "--obsidian"]
+    quartz = "--quartz" in args
+    plain_args = [a for a in args if a not in ("--obsidian", "--quartz")]
     wiki_dir = Path(plain_args[0]) if plain_args else Path("research-wiki")
     config_dest = Path("config.yaml")
 
@@ -70,6 +71,29 @@ def cmd_init(args: list[str]) -> None:
         else:
             skipped.append(str(app_json))
 
+    # Quartz: create content/papers/ and content/templates/ directories
+    if quartz:
+        (wiki_dir / "content" / "papers").mkdir(parents=True, exist_ok=True)
+        (wiki_dir / "content" / "templates").mkdir(parents=True, exist_ok=True)
+        created.append(str(wiki_dir / "content" / "papers"))
+        created.append(str(wiki_dir / "content" / "templates"))
+
+        # Create content/index.md if it doesn't exist
+        index_md = wiki_dir / "content" / "index.md"
+        if not index_md.exists():
+            index_md.write_text(
+                "---\n"
+                "title: Paper Survey\n"
+                "---\n"
+                "\n"
+                "# Paper Survey\n"
+                "\n"
+                "Browse papers by [[tags]] or explore the [[graph]].\n"
+            )
+            created.append(str(index_md))
+        else:
+            skipped.append(str(index_md))
+
     created.append(str(wiki_dir))
 
     print("arxiv-ingest init complete\n")
@@ -86,6 +110,11 @@ def cmd_init(args: list[str]) -> None:
         next_steps += (
             f"  2. Open {wiki_dir} as an Obsidian vault\n"
             "  3. Run: arxiv-ingest run --obsidian\n"
+        )
+    elif quartz:
+        next_steps += (
+            f"  2. Configure Quartz to serve {wiki_dir}/content\n"
+            "  3. Run: arxiv-ingest run --quartz\n"
         )
     else:
         next_steps += "  2. Run: arxiv-ingest run\n"
@@ -676,6 +705,17 @@ def cmd_run(args: list[str]) -> None:
     from scripts.generate import main as generate_main
     sys.argv = ["fetch"] + args
     fetch_main()
+    # Forward output-mode flags to generate
+    gen_argv = ["generate"]
+    if "--obsidian" in args:
+        gen_argv.append("--obsidian")
+    if "--quartz" in args:
+        gen_argv.append("--quartz")
+    if "--summarize" in args:
+        gen_argv.append("--summarize")
+    if "--dry-run" in args:
+        gen_argv.append("--dry-run")
+    sys.argv = gen_argv
     generate_main()
 
 
@@ -686,10 +726,12 @@ def print_help() -> None:
         "Usage:\n"
         "  arxiv-ingest init [wiki-dir]  Create config.yaml and wiki directory skeleton\n"
         "                                  --obsidian  also create .obsidian/app.json\n"
+        "                                  --quartz    create content/papers/ and content/templates/\n"
         "  arxiv-ingest fetch            Fetch recent papers from arXiv (saves data/fetched.json)\n"
         "                                  --since=YYYY-MM-DD  fetch from a specific date\n"
         "  arxiv-ingest generate         Generate skeleton files from fetched.json\n"
         "                                  --obsidian   use [[wikilinks]] (Obsidian-compatible)\n"
+        "                                  --quartz     output Quartz-compatible files (content/papers/YYYY/slug.md)\n"
         "                                  --summarize  auto-fill evidence via Claude API\n"
         "                                               (requires: pip install 'arxiv-ingest[summarize]'\n"
         "                                                          ANTHROPIC_API_KEY env var)\n"

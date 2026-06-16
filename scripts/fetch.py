@@ -78,6 +78,7 @@ def fetch_papers(config: dict) -> list[dict]:
                     "arxiv_categories": result.categories,
                     "wiki_category": map_category(result.categories, category_map),
                     "matched_keyword": keyword,
+                    "journal_ref": result.journal_ref or "",
                 }
             )
 

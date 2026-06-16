@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-16
+
+### Added
+- `--quartz` output mode for [Quartz v4](https://quartz.jzhao.xyz/) static site integration
+  - `arxiv-ingest generate --quartz` — outputs `content/papers/{YYYY}/{slug}.md`
+  - Frontmatter: `authors` as string, `venue` (auto from `journal_ref`), `year`, `read_date`, `status: reading`, `code: ""`
+  - Sections: TL;DR, 背景・問題設定, 手法, 実験, 強み, 弱み・未解決の問い, 関連研究とのつながり, 自分の研究・実装への示唆
+  - `arxiv-ingest init --quartz` — creates `content/papers/` and `content/templates/`
+  - `--summarize --quartz` — fills sections via Claude API in paper-survey format
+- `venue` auto-detection from arXiv `journal_ref` field
+  - `journal_ref` stored in `fetched.json` for all papers
+  - Format: `"ICLR 2022 / arXiv:2501.00001"` when available, `"arXiv:2501.00001"` otherwise
+- `output_format` and `quartz:` options documented in `config.yaml.example`
+
 ## [0.18.0] - 2026-06-16
 
 ### Added

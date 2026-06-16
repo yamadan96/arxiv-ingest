@@ -92,6 +92,77 @@ def _parse(text: str) -> dict[str, list[str]]:
     return sections
 
 
+def _make_quartz_prompt(paper: dict) -> str:
+    return f"""You are a research assistant. Fill in the following sections for the paper below.
+Write in Japanese. Be concise — each section 2-5 bullet points or 1-2 sentences.
+
+Paper title: {paper['title']}
+Authors: {', '.join(paper.get('authors', [])[:5])}
+Abstract: {paper['abstract']}
+
+Fill in this Markdown template. Return ONLY the filled content with NO extra commentary:
+
+## TL;DR
+
+> (1~2 sentence core summary. Example: "TransformerにLoRAを適用し、フルファインチューニングと同等の性能を1/1000のパラメータで実現")
+
+## 背景・問題設定
+
+## 手法
+
+## 実験
+
+## 強み
+
+## 弱み・未解決の問い
+
+## 関連研究とのつながり
+
+## 自分の研究・実装への示唆
+"""
+
+
+def summarize_quartz(paper: dict) -> str:
+    """Call Claude API and return filled Quartz sections as raw Markdown string.
+
+    Raises ImportError if anthropic is not installed.
+    Raises EnvironmentError if ANTHROPIC_API_KEY is not set.
+    """
+    try:
+        import anthropic
+    except ImportError as e:
+        raise ImportError(
+            "anthropic package not installed. Run: pip install 'arxiv-ingest[summarize]'"
+        ) from e
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError(
+            "ANTHROPIC_API_KEY environment variable not set."
+        )
+
+    client = anthropic.Anthropic(api_key=api_key)
+    prompt = _make_quartz_prompt(paper)
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return message.content[0].text
+
+
+def fill_quartz_file(path: Path, content: str) -> bool:
+    """Replace unfilled sentinel in a Quartz file with LLM content."""
+    SENTINEL = "<!-- arxiv-ingest: unfilled -->"
+    existing = path.read_text()
+    if SENTINEL not in existing:
+        return False
+    filled = existing.replace(SENTINEL + "\n", content.strip() + "\n", 1)
+    path.write_text(filled)
+    return True
+
+
 def fill_evidence(paper: dict, evidence_path: Path, summary: dict[str, list[str]], date_added: str) -> None:
     """Rewrite an evidence file with LLM-generated content (removes template marker)."""
     from scripts.generate import EVIDENCE_TEMPLATE, _TEMPLATE_MARKER

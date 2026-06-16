@@ -139,6 +139,43 @@ venue: ""
 - ?
 """
 
+QUARTZ_TEMPLATE = """\
+---
+title: "{title}"
+authors: "{authors_str}"
+venue: "{venue}"
+year: {year}
+url: "{url}"
+code: ""
+read_date: {date_added}
+status: reading
+tags:
+{tags_yaml}
+draft: false
+---
+
+<!-- arxiv-ingest: unfilled -->
+
+## TL;DR
+
+> (1~2 sentence summary here)
+
+## 背景・問題設定
+
+## 手法
+
+## 実験
+
+## 強み
+
+## 弱み・未解決の問い
+
+## 関連研究とのつながり
+
+## 自分の研究・実装への示唆
+"""
+
+
 EVIDENCE_TEMPLATE_OBSIDIAN = """\
 {marker}
 ---
@@ -271,6 +308,49 @@ def generate_wiki(
     return out, True
 
 
+def _venue_string(paper: dict) -> str:
+    """Return venue string: journal_ref if available, else arXiv:ID."""
+    jr = paper.get("journal_ref", "")
+    arxiv_id_clean = paper["arxiv_id"].split("v")[0]
+    if jr:
+        return f"{jr} / arXiv:{arxiv_id_clean}"
+    return f"arXiv:{arxiv_id_clean}"
+
+
+def generate_quartz(
+    paper: dict, wiki_root: Path, date_added: str
+) -> tuple[Path, bool]:
+    """Create a Quartz-compatible paper note in content/papers/{YYYY}/{slug}.md."""
+    slug = paper["slug"]
+    year = int(paper["published"][:4])
+    out = wiki_root / "content" / "papers" / str(year) / f"{slug}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    if out.exists() and not is_template(out):
+        return out, False
+
+    tags = [
+        paper["wiki_category"].lower(),
+        paper["matched_keyword"].lower().replace(" ", "-"),
+    ]
+    tags_yaml = "\n".join(f"  - {t}" for t in tags)
+    arxiv_id_clean = paper["arxiv_id"].split("v")[0] if "v" in paper["arxiv_id"] else paper["arxiv_id"]
+    venue = _venue_string(paper)
+    authors_str = ", ".join(paper["authors"][:5])
+
+    content = QUARTZ_TEMPLATE.format(
+        title=paper["title"].replace('"', '\\"'),
+        authors_str=authors_str,
+        venue=venue,
+        year=year,
+        url=paper["url"],
+        date_added=date_added,
+        tags_yaml=tags_yaml,
+    )
+    out.write_text(content)
+    return out, True
+
+
 def _update_recent(wiki_root: Path, paper: dict, date_added: str) -> None:
     """Append a paper entry to index/recent.md under its date section."""
     recent = wiki_root / "index" / "recent.md"
@@ -352,6 +432,7 @@ def main() -> None:
     dry_run = "--dry-run" in sys.argv
     summarize = "--summarize" in sys.argv
     obsidian = "--obsidian" in sys.argv
+    quartz = "--quartz" in sys.argv
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
@@ -384,33 +465,69 @@ def main() -> None:
     papers_added: list[dict] = []
 
     for paper in fetched:
-        if dry_run:
-            s_new, e_new, w_new = _would_create(paper, wiki_root)
-        else:
-            _, s_new = generate_sources(paper, wiki_root, date_added)
-            ev_path, e_new = generate_evidence(paper, wiki_root, date_added, obsidian=obsidian)
-            _, w_new = generate_wiki(paper, wiki_root, date_added, obsidian=obsidian)
+        if quartz:
+            # Quartz mode: generate sources + quartz file (no evidence/wiki)
+            if dry_run:
+                src = wiki_root / "sources" / paper["wiki_category"] / f"{paper['slug']}.md"
+                s_new = not src.exists()
+                year = int(paper["published"][:4])
+                qpath = wiki_root / "content" / "papers" / str(year) / f"{paper['slug']}.md"
+                q_new = not qpath.exists() or is_template(qpath)
+                e_new = w_new = False
+            else:
+                _, s_new = generate_sources(paper, wiki_root, date_added)
+                qpath, q_new = generate_quartz(paper, wiki_root, date_added)
+                e_new = w_new = False
 
-            # Auto-fill evidence with LLM summary if requested
-            if summarize and e_new:
-                try:
-                    from scripts.summarize import fill_evidence
-                    from scripts.summarize import summarize as _summarize_fn
-                    summary = _summarize_fn(paper)
-                    fill_evidence(paper, ev_path, summary, date_added)
-                    console.print(f"[blue]∑ summarized[/blue] {paper['wiki_category']}/{paper['slug']}")
-                except Exception as exc:
-                    console.print(f"[yellow]summarize failed:[/yellow] {exc}")
+                # Auto-fill quartz file with LLM summary if requested
+                if summarize and q_new:
+                    try:
+                        from scripts.summarize import fill_quartz_file
+                        from scripts.summarize import summarize_quartz as _summarize_quartz_fn
+                        summary_content = _summarize_quartz_fn(paper)
+                        fill_quartz_file(qpath, summary_content)
+                        console.print(f"[blue]∑ summarized[/blue] {paper['slug']}")
+                    except Exception as exc:
+                        console.print(f"[yellow]summarize failed:[/yellow] {exc}")
 
-        if s_new or e_new or w_new:
-            new_count += 1
-            if not dry_run:
-                papers_added.append(paper)
-            prefix = "[yellow]would create[/yellow]" if dry_run else "[green]✓ new[/green]"
-            console.print(f"{prefix} {paper['wiki_category']}/{paper['slug']}")
+            if s_new or q_new:
+                new_count += 1
+                if not dry_run:
+                    papers_added.append(paper)
+                prefix = "[yellow]would create[/yellow]" if dry_run else "[green]✓ new[/green]"
+                console.print(f"{prefix} {paper['slug']}")
+            else:
+                skipped_count += 1
+                console.print(f"[dim]skip[/dim] {paper['slug']}")
         else:
-            skipped_count += 1
-            console.print(f"[dim]skip[/dim] {paper['wiki_category']}/{paper['slug']}")
+            # Standard / Obsidian mode
+            if dry_run:
+                s_new, e_new, w_new = _would_create(paper, wiki_root)
+            else:
+                _, s_new = generate_sources(paper, wiki_root, date_added)
+                ev_path, e_new = generate_evidence(paper, wiki_root, date_added, obsidian=obsidian)
+                _, w_new = generate_wiki(paper, wiki_root, date_added, obsidian=obsidian)
+
+                # Auto-fill evidence with LLM summary if requested
+                if summarize and e_new:
+                    try:
+                        from scripts.summarize import fill_evidence
+                        from scripts.summarize import summarize as _summarize_fn
+                        summary = _summarize_fn(paper)
+                        fill_evidence(paper, ev_path, summary, date_added)
+                        console.print(f"[blue]∑ summarized[/blue] {paper['wiki_category']}/{paper['slug']}")
+                    except Exception as exc:
+                        console.print(f"[yellow]summarize failed:[/yellow] {exc}")
+
+            if s_new or e_new or w_new:
+                new_count += 1
+                if not dry_run:
+                    papers_added.append(paper)
+                prefix = "[yellow]would create[/yellow]" if dry_run else "[green]✓ new[/green]"
+                console.print(f"{prefix} {paper['wiki_category']}/{paper['slug']}")
+            else:
+                skipped_count += 1
+                console.print(f"[dim]skip[/dim] {paper['wiki_category']}/{paper['slug']}")
 
     # Update index files for newly added papers
     if not dry_run and papers_added:

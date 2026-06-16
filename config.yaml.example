@@ -63,3 +63,11 @@ category_map:
 # Discord: https://discord.com/api/webhooks/xxx/yyy
 # Leave empty (or remove) to disable.
 # webhook_url: ""
+
+# Output format: wiki (default 3-layer), quartz, or obsidian
+# output_format: wiki
+
+# Quartz-specific options (used when output_format: quartz or --quartz flag)
+# quartz:
+#   content_dir: "content/papers"   # relative to output_dir
+#   year_folders: true              # content/papers/{YYYY}/{slug}.md
