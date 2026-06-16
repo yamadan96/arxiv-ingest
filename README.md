@@ -4,6 +4,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/arxiv-ingest)](https://pypi.org/project/arxiv-ingest/)
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/arxiv-ingest)](https://pypi.org/project/arxiv-ingest/)
 
+> 日本語 README: [README.ja.md](README.ja.md)
+
 **Fetch recent arXiv papers by keyword and scaffold them into structured research notes.**
 
 Works standalone as a CLI, integrates with Claude Code for LLM-assisted evidence extraction, and auto-runs via GitHub Actions.
