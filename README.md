@@ -11,13 +11,16 @@ Works standalone as a CLI, integrates with Claude Code for LLM-assisted evidence
 ## Features
 
 - **Keyword-based collection** — list topics in `config.yaml`, no code needed
-- **3-layer output** — `sources/` (metadata) · `evidence/` (claims) · `wiki/` (synthesis)
+- **3-layer wiki** — `sources/` (metadata) · `evidence/` (claims) · `wiki/` (synthesis)
 - **Safe re-runs** — already-filled files are never overwritten
-- **LLM auto-summary** — `--summarize` fills evidence files via Claude Haiku
+- **LLM auto-summary** — `--summarize` fills files via Claude API
 - **Date filtering** — `--since=YYYY-MM-DD` for targeted backfills
 - **Inspection tools** — `list`, `status`, `search` for managing your corpus
-- **GitHub Issues export** — `export` opens one issue per paper
+- **Export** — GitHub Issues, BibTeX, CSV
 - **Webhook notifications** — post new-paper summaries to Slack or Discord
+- **Obsidian integration** — `[[wikilinks]]` and graph view connectivity
+- **Quartz integration** — publish directly to a [Quartz v4](https://quartz.jzhao.xyz/) static site
+- **Auto-index** — `index/recent.md`, `log.md`, `index/peer-review.md` updated on every run
 - **GitHub Actions template** — auto-runs Mon–Fri, `workflow_dispatch` for on-demand runs
 
 ## Quick start
@@ -84,7 +87,7 @@ See `config.yaml.example` for all options with documentation.
 | `list` | List papers in `fetched.json` |
 | `status` | Show fill progress (filled / unfilled per layer) |
 | `search <term>` | Full-text search across all local wiki files |
-| `export` | Export papers to GitHub Issues or BibTeX |
+| `export` | Export papers to GitHub Issues, BibTeX, or CSV |
 | `open <id\|slug>` | Open a paper's arXiv page in the browser |
 | `version` | Print the installed version |
 
@@ -95,7 +98,8 @@ arxiv-ingest fetch --since=2025-01-01   # fetch from a specific date
 arxiv-ingest fetch --dry-run            # preview without writing
 
 arxiv-ingest generate --obsidian        # use [[wikilinks]] (Obsidian mode)
-arxiv-ingest generate --summarize       # auto-fill evidence via Claude API
+arxiv-ingest generate --quartz          # output Quartz-compatible files
+arxiv-ingest generate --summarize       # auto-fill via Claude API
 arxiv-ingest generate --dry-run         # preview without writing
 
 arxiv-ingest list --category=Multimodal # filter by wiki category
@@ -105,25 +109,38 @@ arxiv-ingest list --json                # JSON output for piping to jq
 
 arxiv-ingest search attention --json    # search results as JSON
 
-arxiv-ingest export --format=bibtex    # BibTeX output (no gh needed)
-arxiv-ingest export --format=bibtex --limit=5  # top 5 papers as BibTeX
-arxiv-ingest export --repo=owner/repo   # GitHub Issues: target repository
-arxiv-ingest export --dry-run           # GitHub Issues: preview only
+arxiv-ingest export --format=bibtex          # BibTeX output (no gh needed)
+arxiv-ingest export --format=bibtex --limit=5 # top 5 papers as BibTeX
+arxiv-ingest export --format=csv             # CSV output
+arxiv-ingest export --repo=owner/repo         # GitHub Issues: target repository
+arxiv-ingest export --dry-run                 # GitHub Issues: preview only
 
 arxiv-ingest open 2501.00001v1          # open by arXiv ID
 arxiv-ingest open attention-is-all      # open by wiki slug
 ```
 
-## Output format
+## Output format (default)
 
 ```
 output_dir/
-├── sources/{Category}/{slug}.md      # Metadata (title, authors, abstract, URL)
+├── SCHEMA.md                         # Wiki conventions
+├── log.md                            # Append-only change log (auto-updated)
+├── sources/{Category}/{slug}.md      # Metadata — written once, never overwritten
 ├── evidence/{Category}/{slug}.md     # Claims & benchmarks — fill this in
-└── wiki/papers/{Category}/{slug}.md  # Synthesis & interpretation — fill this in
+├── wiki/
+│   ├── index.md                      # Manual topic catalog
+│   └── papers/{Category}/{slug}.md   # Synthesis & interpretation
+├── figures/{Category}/{slug}/        # Paper figures (manual placement)
+├── decisions/                        # Adoption / rejection notes
+├── presentations/                    # Study session slides
+└── index/
+    ├── recent.md                     # Auto-updated on every run
+    ├── peer-review.md                # Auto-updated on every run
+    ├── topics.md                     # Topic index (manual)
+    ├── models.md                     # Model index (manual)
+    └── open-questions.md             # Open questions (manual)
 ```
 
-`sources/` files are written once and never overwritten.
 `evidence/` and `wiki/` files are only re-created if they still contain the unfilled template placeholder, so manual edits are safe across re-runs.
 
 ## Obsidian integration
@@ -142,7 +159,40 @@ What `--obsidian` changes:
 - `wiki/papers/` pages use `[[slug]]` instead of `[source](path/to/file.md)`
 - `evidence/` pages include a `> Source paper: [[slug]]` backlink
 
-Open `my-research-wiki` as an Obsidian vault and the graph view shows papers linked to their evidence and source files automatically.
+## Quartz integration
+
+[Quartz v4](https://quartz.jzhao.xyz/) users can publish papers directly to a static site with graph view, backlinks, and tag pages.
+
+```bash
+# First-time setup: creates content/papers/ and content/templates/
+arxiv-ingest init --quartz my-quartz-site
+
+# Daily use: generates content/papers/{YYYY}/{slug}.md
+arxiv-ingest run --quartz
+
+# With LLM auto-fill (fills all sections in Japanese)
+arxiv-ingest run --quartz --summarize
+```
+
+Generated file (`content/papers/2025/attention-is-all-you-need.md`):
+
+```yaml
+---
+title: "Attention Is All You Need"
+authors: "Vaswani, Ashish, Shazeer, Noam, ..."
+venue: "arXiv:2501.00001"        # "ICLR 2022 / arXiv:..." when journal_ref available
+year: 2025
+url: "https://arxiv.org/abs/2501.00001"
+code: ""
+read_date: 2026-06-16
+status: reading
+tags:
+  - Post_Training
+  - transformer
+---
+```
+
+Sections: TL;DR · 背景・問題設定 · 手法 · 実験 · 強み · 弱み・未解決の問い · 関連研究とのつながり · 自分の研究・実装への示唆
 
 ## LLM auto-summary
 
@@ -152,10 +202,11 @@ Install the optional `anthropic` dependency and set your API key:
 pip install 'arxiv-ingest[summarize]'
 export ANTHROPIC_API_KEY=sk-ant-...
 
-arxiv-ingest generate --summarize
+arxiv-ingest generate --summarize          # fills evidence/ (default mode)
+arxiv-ingest generate --quartz --summarize # fills Quartz sections in Japanese
 ```
 
-Claude Haiku reads each paper's abstract and pre-fills `evidence/` with key claims, contributions, limitations, and implementation notes. You can then edit and expand the filled files — they won't be overwritten on the next run.
+Claude reads each paper's abstract and pre-fills the files. Already-edited files are never overwritten.
 
 ## Webhook notifications
 
@@ -197,7 +248,7 @@ After `arxiv-ingest run`, invoke `/arxiv-ingest` in Claude Code. Claude reads ea
 ### Schedule
 
 - **Auto**: Mon–Fri UTC 01:00 — `cron: '0 1 * * 1-5'`
-- **Manual**: `workflow_dispatch` with optional `days_back` override
+- **Manual**: `workflow_dispatch` with optional `days_back` and `summarize` inputs
 
 ## Requirements
 
