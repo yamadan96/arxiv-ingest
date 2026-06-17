@@ -460,8 +460,149 @@ def cmd_list(args: list[str]) -> None:
     console.print(table)
 
 
+def cmd_embed(args: list[str]) -> None:
+    """Encode paper titles + abstracts and save embeddings to data/embeddings.npz."""
+    import json
+
+    try:
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        print(
+            "Error: sentence-transformers is required.\n"
+            "Install: uv add --optional semantic sentence-transformers",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from rich.console import Console
+    console = Console()
+
+    fetched_path = Path("data/fetched.json")
+    if not fetched_path.exists():
+        console.print("[red]Error:[/red] data/fetched.json not found. Run 'arxiv-ingest fetch' first.")
+        sys.exit(1)
+
+    papers = json.loads(fetched_path.read_text())
+    if not papers:
+        console.print("[yellow]No papers to embed.[/yellow]")
+        return
+
+    emb_path = Path("data/embeddings.npz")
+
+    # Load existing embeddings for incremental updates
+    existing_ids: set[str] = set()
+    existing_id_list: list[str] = []
+    existing_vectors: list = []
+    if emb_path.exists():
+        data = np.load(emb_path, allow_pickle=True)
+        existing_id_list = list(data["paper_ids"])
+        existing_vectors = list(data["embeddings"])
+        existing_ids = set(existing_id_list)
+
+    # Filter to papers not yet embedded
+    new_papers = [p for p in papers if p["arxiv_id"] not in existing_ids]
+    if not new_papers:
+        console.print(f"[dim]All {len(papers)} papers already embedded.[/dim]")
+        return
+
+    console.print(f"Encoding {len(new_papers)} new papers (skipping {len(existing_ids)} existing)...")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    texts = [f"{p['title']}. {p['abstract']}" for p in new_papers]
+    new_vectors = model.encode(texts, show_progress_bar=True)
+
+    # Merge with existing
+    all_ids = existing_id_list + [p["arxiv_id"] for p in new_papers]
+    if existing_vectors:
+        all_vectors = np.vstack([np.array(existing_vectors), new_vectors])
+    else:
+        all_vectors = new_vectors
+
+    np.savez(emb_path, paper_ids=np.array(all_ids), embeddings=all_vectors)
+    console.print(f"[green]Saved {len(all_ids)} embeddings → {emb_path}[/green]")
+
+
+def _semantic_search(
+    query: str,
+    limit: int,
+) -> None:
+    """Run semantic similarity search against pre-computed embeddings."""
+    import json
+
+    try:
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        print(
+            "Error: sentence-transformers is required.\n"
+            "Install: uv add --optional semantic sentence-transformers",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+
+    emb_path = Path("data/embeddings.npz")
+    if not emb_path.exists():
+        console.print(
+            "[red]Error:[/red] data/embeddings.npz not found.\n"
+            "Run: [cyan]arxiv-ingest embed[/cyan] first."
+        )
+        sys.exit(1)
+
+    fetched_path = Path("data/fetched.json")
+    if not fetched_path.exists():
+        console.print("[red]Error:[/red] data/fetched.json not found.")
+        sys.exit(1)
+
+    data = np.load(emb_path, allow_pickle=True)
+    paper_ids = list(data["paper_ids"])
+    embeddings = data["embeddings"]
+
+    papers = json.loads(fetched_path.read_text())
+    id_to_paper = {p["arxiv_id"]: p for p in papers}
+
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    query_vec = model.encode([query])
+
+    # Cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1, norms)  # avoid division by zero
+    normed = embeddings / norms
+    q_norm = query_vec / np.linalg.norm(query_vec)
+    scores = (normed @ q_norm.T).flatten()
+
+    top_indices = np.argsort(scores)[::-1][:limit]
+
+    table = Table(title=f"Semantic search: '{query}' (top {limit})")
+    table.add_column("Score", style="green", no_wrap=True, justify="right")
+    table.add_column("Category", style="cyan", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("arXiv ID", style="dim", no_wrap=True)
+
+    for idx in top_indices:
+        pid = paper_ids[idx]
+        score = scores[idx]
+        p = id_to_paper.get(pid)
+        if p:
+            table.add_row(
+                f"{score:.3f}",
+                p.get("wiki_category", ""),
+                p["title"][:70],
+                p["arxiv_id"],
+            )
+        else:
+            table.add_row(f"{score:.3f}", "", "(paper removed from fetched.json)", pid)
+
+    console.print(table)
+
+
 def cmd_search(args: list[str]) -> None:
-    """Search local wiki files for a keyword."""
+    """Search local wiki files for a keyword, or use --semantic for vector similarity."""
     import json
     import re
     import yaml
@@ -471,13 +612,28 @@ def cmd_search(args: list[str]) -> None:
     console = Console()
 
     json_output = "--json" in args
-    plain_args = [a for a in args if a != "--json"]
+    semantic = "--semantic" in args
+    limit = next(
+        (int(a.split("=", 1)[1]) for a in args if a.startswith("--limit=")), 10
+    )
+    plain_args = [
+        a for a in args
+        if a not in ("--json", "--semantic") and not a.startswith("--limit=")
+    ]
 
     if not plain_args:
         console.print("[red]Error:[/red] provide a search term. Usage: arxiv-ingest search <term>")
         sys.exit(1)
 
-    query = " ".join(plain_args).lower()
+    query = " ".join(plain_args)
+
+    # Semantic search mode
+    if semantic:
+        _semantic_search(query, limit)
+        return
+
+    # Keyword search mode (original behavior)
+    query_lower = query.lower()
 
     config_path = Path("config.yaml")
     if not config_path.exists():
@@ -497,7 +653,7 @@ def cmd_search(args: list[str]) -> None:
 
     for md in sorted(wiki_root.rglob("*.md")):
         text = md.read_text()
-        if query not in text.lower():
+        if query_lower not in text.lower():
             continue
 
         # Determine layer label from path relative to wiki_root
@@ -506,12 +662,12 @@ def cmd_search(args: list[str]) -> None:
         layer = parts[0] if parts[0] != "wiki" else "wiki/" + parts[1]
 
         # Extract a short snippet around the first match
-        idx = text.lower().find(query)
+        idx = text.lower().find(query_lower)
         start = max(0, idx - 40)
-        end = min(len(text), idx + len(query) + 60)
+        end = min(len(text), idx + len(query_lower) + 60)
         plain = text[start:end].replace("\n", " ").strip()
         rich_snippet = re.sub(
-            re.escape(query), f"[bold yellow]{query}[/bold yellow]", plain,
+            re.escape(query_lower), f"[bold yellow]{query_lower}[/bold yellow]", plain,
             flags=re.IGNORECASE,
         )
 
@@ -696,6 +852,9 @@ def cmd_fetch(args: list[str]) -> None:
 
 def cmd_generate(args: list[str]) -> None:
     from scripts.generate import main as generate_main
+    # Forward flags to generate via sys.argv
+    gen_argv = ["generate"] + args
+    sys.argv = gen_argv
     generate_main()
 
 
@@ -715,6 +874,11 @@ def cmd_run(args: list[str]) -> None:
         gen_argv.append("--summarize")
     if "--dry-run" in args:
         gen_argv.append("--dry-run")
+    # Forward --limit=N
+    for a in args:
+        if a.startswith("--limit="):
+            gen_argv.append(a)
+            break
     sys.argv = gen_argv
     generate_main()
 
@@ -735,14 +899,20 @@ def print_help() -> None:
         "                                  --summarize  auto-fill evidence via Claude API\n"
         "                                               (requires: pip install 'arxiv-ingest[summarize]'\n"
         "                                                          ANTHROPIC_API_KEY env var)\n"
+        "                                  --limit=<N>  generate for at most N papers\n"
         "  arxiv-ingest run              fetch + generate in one step\n"
+        "                                  --limit=<N>  generate for at most N papers\n"
         "  arxiv-ingest list             List papers in data/fetched.json\n"
         "                                  --unfilled          only show unfilled papers\n"
         "                                  --category=<name>   filter by wiki category\n"
         "                                  --limit=<N>         show at most N papers\n"
         "                                  --json              output raw JSON (pipe to jq)\n"
         "  arxiv-ingest status           Show fill progress for evidence and wiki files\n"
+        "  arxiv-ingest embed            Encode paper embeddings for semantic search\n"
+        "                                  (requires: pip install 'arxiv-ingest[semantic]')\n"
         "  arxiv-ingest search <term>    Search local wiki files for a keyword\n"
+        "                                  --semantic          vector similarity search (requires embed first)\n"
+        "                                  --limit=<N>         max results for semantic search (default 10)\n"
         "                                  --json              output raw JSON\n"
         "  arxiv-ingest export           Export fetched papers (default: GitHub Issues)\n"
         "                                  --format=bibtex    output BibTeX to stdout\n"
@@ -784,6 +954,7 @@ def main() -> None:
         "list": cmd_list,
         "status": cmd_status,
         "search": cmd_search,
+        "embed": cmd_embed,
         "export": cmd_export,
         "open": cmd_open,
         "version": cmd_version,

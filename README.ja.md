@@ -89,6 +89,7 @@ category_map:
 | `list` | `fetched.json` の論文一覧を表示 |
 | `status` | evidence・wiki の記入進捗を表示 |
 | `search <term>` | ローカル wiki ファイルの全文検索 |
+| `embed` | セマンティック検索用の埋め込みベクトルを生成（`[semantic]` が必要） |
 | `export` | GitHub Issues・BibTeX・CSV にエクスポート |
 | `open <id\|slug>` | 論文の arXiv ページをブラウザで開く |
 | `version` | インストール済みバージョンを表示 |
@@ -103,6 +104,7 @@ arxiv-ingest generate --obsidian        # [[wikilinks]] モード（Obsidian 向
 arxiv-ingest generate --quartz          # Quartz 互換ファイルを出力
 arxiv-ingest generate --summarize       # Claude API で自動要約
 arxiv-ingest generate --dry-run         # 書き込みなしでプレビュー
+arxiv-ingest generate --limit=5         # 最大5件の論文のみ生成
 
 arxiv-ingest list --category=Multimodal # カテゴリでフィルタ
 arxiv-ingest list --unfilled            # 未記入の論文のみ表示
@@ -110,6 +112,10 @@ arxiv-ingest list --limit=10            # 最大10件表示
 arxiv-ingest list --json                # JSON 出力（jq にパイプ可能）
 
 arxiv-ingest search attention --json    # 検索結果を JSON で出力
+
+arxiv-ingest embed                          # セマンティック検索用の埋め込みを生成
+arxiv-ingest search --semantic "vision transformer"  # セマンティック類似検索
+arxiv-ingest search --semantic "LoRA" --limit=5      # 上位5件のセマンティック検索
 
 arxiv-ingest export --format=bibtex           # BibTeX 出力（gh 不要）
 arxiv-ingest export --format=bibtex --limit=5 # 上位5件を BibTeX で出力

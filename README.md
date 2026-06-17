@@ -89,6 +89,7 @@ See `config.yaml.example` for all options with documentation.
 | `list` | List papers in `fetched.json` |
 | `status` | Show fill progress (filled / unfilled per layer) |
 | `search <term>` | Full-text search across all local wiki files |
+| `embed` | Encode paper embeddings for semantic search (requires `[semantic]`) |
 | `export` | Export papers to GitHub Issues, BibTeX, or CSV |
 | `open <id\|slug>` | Open a paper's arXiv page in the browser |
 | `version` | Print the installed version |
@@ -103,6 +104,7 @@ arxiv-ingest generate --obsidian        # use [[wikilinks]] (Obsidian mode)
 arxiv-ingest generate --quartz          # output Quartz-compatible files
 arxiv-ingest generate --summarize       # auto-fill via Claude API
 arxiv-ingest generate --dry-run         # preview without writing
+arxiv-ingest generate --limit=5         # generate for at most 5 papers
 
 arxiv-ingest list --category=Multimodal # filter by wiki category
 arxiv-ingest list --unfilled            # only papers with empty wiki pages
@@ -110,6 +112,10 @@ arxiv-ingest list --limit=10            # show at most 10 papers
 arxiv-ingest list --json                # JSON output for piping to jq
 
 arxiv-ingest search attention --json    # search results as JSON
+
+arxiv-ingest embed                          # encode embeddings for semantic search
+arxiv-ingest search --semantic "vision transformer"  # semantic similarity search
+arxiv-ingest search --semantic "LoRA" --limit=5      # top 5 semantic results
 
 arxiv-ingest export --format=bibtex          # BibTeX output (no gh needed)
 arxiv-ingest export --format=bibtex --limit=5 # top 5 papers as BibTeX

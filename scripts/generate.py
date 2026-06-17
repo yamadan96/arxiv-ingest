@@ -433,6 +433,10 @@ def main() -> None:
     summarize = "--summarize" in sys.argv
     obsidian = "--obsidian" in sys.argv
     quartz = "--quartz" in sys.argv
+    limit = next(
+        (int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--limit=")),
+        None,
+    )
 
     root = Path(__file__).parent.parent
     config = load_config(root / "config.yaml")
@@ -446,6 +450,8 @@ def main() -> None:
 
     wiki_root = (root / config.get("output_dir", "../research-wiki")).resolve()
     fetched = json.loads(fetched_path.read_text())
+    if limit is not None:
+        fetched = fetched[:limit]
     date_added = date.today().isoformat()
 
     # Validate summarize dependencies early

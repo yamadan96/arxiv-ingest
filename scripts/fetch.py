@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -34,7 +35,11 @@ def map_category(arxiv_cats: list[str], category_map: dict) -> str:
     return "Architecture"
 
 
-def fetch_papers(config: dict) -> list[dict]:
+def _fetch_keyword(
+    keyword: str,
+    config: dict,
+) -> list[dict]:
+    """Fetch papers for a single keyword. Thread-safe (no shared mutable state)."""
     client = arxiv.Client()
     cutoff = datetime.now(timezone.utc) - timedelta(days=config.get("days_back", 1))
     category_map = config.get("category_map", {})
@@ -42,45 +47,87 @@ def fetch_papers(config: dict) -> list[dict]:
     allowed_cats = set(config.get("allowed_arxiv_categories", []))
     require_primary = set(config.get("require_primary_in", []))
 
+    results_list: list[dict] = []
+    search = arxiv.Search(
+        query=keyword,
+        max_results=max_results,
+        sort_by=arxiv.SortCriterion.SubmittedDate,
+        sort_order=arxiv.SortOrder.Descending,
+    )
+    for result in client.results(search):
+        if result.published < cutoff:
+            continue
+        if allowed_cats and not any(c in allowed_cats for c in result.categories):
+            continue
+        primary = result.categories[0] if result.categories else ""
+        if require_primary and primary not in require_primary:
+            continue
+        arxiv_id = result.entry_id.split("/")[-1]
+        results_list.append(
+            {
+                "arxiv_id": arxiv_id,
+                "slug": slugify(result.title),
+                "title": result.title,
+                "authors": [a.name for a in result.authors],
+                "abstract": result.summary.replace("\n", " "),
+                "url": result.entry_id,
+                "pdf_url": result.pdf_url,
+                "published": result.published.date().isoformat(),
+                "arxiv_categories": result.categories,
+                "wiki_category": map_category(result.categories, category_map),
+                "matched_keyword": keyword,
+                "journal_ref": result.journal_ref or "",
+            }
+        )
+    return results_list
+
+
+def fetch_papers(config: dict, *, parallel: bool = True) -> list[dict]:
+    """Fetch papers for all keywords, optionally in parallel.
+
+    When *parallel* is True (default), keywords are fetched concurrently
+    using a ThreadPoolExecutor with ``min(len(keywords), 5)`` workers.
+    Duplicate arXiv IDs across keywords are merged (first occurrence wins).
+    """
+    keywords = config.get("keywords", [])
+    if not keywords:
+        return []
+
     seen_ids: set[str] = set()
     papers: list[dict] = []
 
-    for keyword in config.get("keywords", []):
-        console.print(f"[cyan]Searching:[/cyan] {keyword}")
-        search = arxiv.Search(
-            query=keyword,
-            max_results=max_results,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
-            sort_order=arxiv.SortOrder.Descending,
-        )
-        for result in client.results(search):
-            if result.published < cutoff:
-                continue
-            if allowed_cats and not any(c in allowed_cats for c in result.categories):
-                continue
-            primary = result.categories[0] if result.categories else ""
-            if require_primary and primary not in require_primary:
-                continue
-            arxiv_id = result.entry_id.split("/")[-1]
-            if arxiv_id in seen_ids:
-                continue
-            seen_ids.add(arxiv_id)
-            papers.append(
-                {
-                    "arxiv_id": arxiv_id,
-                    "slug": slugify(result.title),
-                    "title": result.title,
-                    "authors": [a.name for a in result.authors],
-                    "abstract": result.summary.replace("\n", " "),
-                    "url": result.entry_id,
-                    "pdf_url": result.pdf_url,
-                    "published": result.published.date().isoformat(),
-                    "arxiv_categories": result.categories,
-                    "wiki_category": map_category(result.categories, category_map),
-                    "matched_keyword": keyword,
-                    "journal_ref": result.journal_ref or "",
-                }
-            )
+    def _dedup_extend(batch: list[dict]) -> None:
+        for p in batch:
+            if p["arxiv_id"] not in seen_ids:
+                seen_ids.add(p["arxiv_id"])
+                papers.append(p)
+
+    if not parallel or len(keywords) == 1:
+        # Sequential path (used for --dry-run or single keyword)
+        for keyword in keywords:
+            console.print(f"[cyan]Searching:[/cyan] {keyword}")
+            batch = _fetch_keyword(keyword, config)
+            _dedup_extend(batch)
+            console.print(f"[green]  done:[/green] {keyword} ({len(batch)} results)")
+        return papers
+
+    # Parallel path
+    max_workers = min(len(keywords), 5)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_kw = {
+            executor.submit(_fetch_keyword, kw, config): kw
+            for kw in keywords
+        }
+        for future in as_completed(future_to_kw):
+            kw = future_to_kw[future]
+            try:
+                batch = future.result()
+                _dedup_extend(batch)
+                console.print(
+                    f"[green]  done:[/green] {kw} ({len(batch)} results)"
+                )
+            except Exception as exc:
+                console.print(f"[red]Error fetching '{kw}':[/red] {exc}")
 
     return papers
 
@@ -122,7 +169,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        papers = fetch_papers(config)
+        papers = fetch_papers(config, parallel=not dry_run)
     except Exception as exc:
         console.print(f"[red]Error fetching papers:[/red] {exc}")
         sys.exit(1)

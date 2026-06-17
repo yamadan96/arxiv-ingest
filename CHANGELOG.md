@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-06-17
+
+### Added
+- Parallel fetch: keywords are fetched concurrently via `ThreadPoolExecutor` (up to 5 workers), significantly speeding up multi-keyword fetches. Sequential mode is used for `--dry-run`.
+- `--limit=N` flag for `generate` and `run` — process at most N papers from `fetched.json`
+- Semantic search via `sentence-transformers` (optional dependency `arxiv-ingest[semantic]`)
+  - `arxiv-ingest embed` — encode paper titles + abstracts with `all-MiniLM-L6-v2`, saves to `data/embeddings.npz` (incremental updates)
+  - `arxiv-ingest search --semantic <query>` — cosine similarity ranking against pre-computed embeddings
+  - `--limit=N` controls the number of results (default 10)
+
 ## [0.19.0] - 2026-06-16
 
 ### Added
