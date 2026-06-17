@@ -30,18 +30,18 @@ jobs:
       - name: Checkout arxiv-ingest
         uses: actions/checkout@v4
 
-      # --- 3-layer wiki (quartz=false) ---
+      # --- 3-layer wiki (quartz=false, WIKI_REPO must be set) ---
       - name: Checkout research-wiki
-        if: ${{ inputs.quartz != true }}
+        if: ${{ inputs.quartz != true && vars.WIKI_REPO != '' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ vars.WIKI_REPO }}
           token: ${{ secrets.GH_PAT }}
           path: research-wiki
 
-      # --- Quartz site (quartz=true) ---
+      # --- Quartz site (quartz=true, PAPER_SURVEY_REPO must be set) ---
       - name: Checkout paper-survey
-        if: ${{ inputs.quartz == true }}
+        if: ${{ inputs.quartz == true && vars.PAPER_SURVEY_REPO != '' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ vars.PAPER_SURVEY_REPO }}
@@ -64,10 +64,13 @@ jobs:
       - name: Point config at target wiki
         run: |
           python -c "
-          import yaml, pathlib
+          import yaml, pathlib, os
           p = pathlib.Path('config.yaml')
           cfg = yaml.safe_load(p.read_text())
-          cfg['output_dir'] = 'paper-survey' if '${{ inputs.quartz }}' == 'true' else 'research-wiki'
+          if '${{ inputs.quartz }}' == 'true' and os.path.isdir('paper-survey'):
+            cfg['output_dir'] = 'paper-survey'
+          elif os.path.isdir('research-wiki'):
+            cfg['output_dir'] = 'research-wiki'
           p.write_text(yaml.dump(cfg, allow_unicode=True))
           "
 
@@ -91,7 +94,7 @@ jobs:
 
       # --- Commit to research-wiki (quartz=false) ---
       - name: Commit to research-wiki
-        if: ${{ inputs.quartz != true }}
+        if: ${{ inputs.quartz != true && vars.WIKI_REPO != '' }}
         working-directory: research-wiki
         run: |
           git config user.name "arxiv-ingest[bot]"
@@ -107,7 +110,7 @@ jobs:
 
       # --- Commit to paper-survey (quartz=true) ---
       - name: Commit to paper-survey
-        if: ${{ inputs.quartz == true }}
+        if: ${{ inputs.quartz == true && vars.PAPER_SURVEY_REPO != '' }}
         working-directory: paper-survey
         run: |
           git config user.name "arxiv-ingest[bot]"
